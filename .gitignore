@@ -1,0 +1,30 @@
+# 🐍 Python
+__pycache__/
+*.py[cod]
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# 🔒 Environnement virtuel
+venv/
+ENV/
+env/
+.venv/
+
+# 🔧 IDE et OS
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+.DS_Store
+
+# 🗄️ Base de données locale (si SQLite)
+db.sqlite3
+
+# 📦 Dépendances externes non suivies
+*.log
+
+# ⚙️ Config environnement (si tu utilises dotenv)
+.env
