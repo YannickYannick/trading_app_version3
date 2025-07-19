@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}BAFF website{% endblock %}</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; background: #f8f9fa; }
+        header, footer { background: #222; color: #fff; padding: 1em; text-align: center; }
+        nav { background: #444; }
+        nav ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; justify-content: center; }
+        nav li { margin: 0 1em; }
+        nav a { color: #fff; text-decoration: none; padding: 0.5em 0.8em; border-radius: 4px; transition: background 0.2s; }
+        nav a:hover { background: #666; }
+        #content { max-width: 1200px; margin: 2em auto; background: #fff; padding: 2em; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+        @media (max-width: 700px) {
+            #content { padding: 1em; }
+            nav ul { flex-direction: column; align-items: center; }
+            nav li { margin: 0.5em 0; }
+        }
+    </style>
+</head>
+<body>
+<header>BAFF site</header>
+<nav>
+   {% block nav %}
+   <ul>
+      <li><a href="/admin/">Admin</a></li>
+      <li><a href="/assets/">Assets (liste simple)</a></li>
+      <li><a href="/assets/tabulator/">Assets (tableau dynamique)</a></li>
+   </ul>
+   {% endblock %}
+</nav>
+<section id="content">
+   {% block content %}{% endblock %}
+</section>
+<footer>&copy; Baff qualidad</footer>
+</body>
+</html> 

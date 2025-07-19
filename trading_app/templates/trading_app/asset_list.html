@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Liste des Assets</title>
+    <style>
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+        th { background: #f4f4f4; }
+    </style>
+</head>
+<body>
+    <h1>Liste des Assets</h1>
+    <table>
+        <thead>
+            <tr>
+                <th>Symbole</th>
+                <th>Nom</th>
+                <th>Type</th>
+                <th>Plateforme</th>
+                <th>Prix</th>
+                <th>Graphique</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for asset in assets %}
+            <tr>
+                <td>{{ asset.symbol }}</td>
+                <td>{{ asset.name }}</td>
+                <td>{{ asset.type }}</td>
+                <td>{{ asset.platform }}</td>
+                <td>{{ asset.last_price }}</td>
+                <td>
+                    <a href="https://www.tradingview.com/symbols/{{ asset.symbol|upper }}/" target="_blank">Voir sur TradingView</a>
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="6">Aucun asset trouvé.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html> 

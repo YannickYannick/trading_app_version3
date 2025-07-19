@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Assets Tabulator{% endblock %}
+
+{% block content %}
+<h1>Assets - Tableau dynamique</h1>
+<button id="action-button">Lancer une action (fetch)</button>
+<div id="asset-table"></div>
+<button id="add-row">Ajouter une ligne</button>
+<button id="delete-row">Supprimer la dernière ligne</button>
+<button id="update-row">Modifier la première ligne</button>
+
+<!-- Tabulator CSS & JS -->
+<link href="https://cdnjs.cloudflare.com/ajax/libs/tabulator/5.0.3/css/tabulator.min.css" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tabulator/5.0.3/js/tabulator.min.js"></script>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+
+<script>
+    // Données injectées depuis Django
+    var tabledata = {{ data_assets|safe }};
+
+    // Colonnes dynamiques selon les clés du premier asset
+    var columns = [];
+    if (tabledata.length > 0) {
+        Object.keys(tabledata[0]).forEach(function(key) {
+            columns.push({ title: key, field: key, editor: "input" });
+        });
+        columns.push({ title: "Action", formatter: buttonFormatter, headerSort: false });
+    }
+
+    // Formatter pour le bouton AJAX
+    function buttonFormatter(cell) {
+        var button = document.createElement("button");
+        button.textContent = "Save !";
+        button.addEventListener("click", function() {
+            var rowData = cell.getRow().getData();
+            const csrftoken = getCookie('csrftoken');
+            $.ajax({
+                url: '/assets/save/',  // <-- nouvelle URL
+                type: 'POST',
+                data: rowData,
+                headers: {'X-CSRFToken': csrftoken },
+                success: function(response) {
+                    alert("Enregistré !");
+                },
+                error: function(xhr) {
+                    alert("Erreur lors de l'enregistrement !");
+                }
+            });
+            alert("Row data: " + JSON.stringify(rowData));
+        });
+        return button;
+    }
+
+    // Fonction pour récupérer le CSRF token
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+
+    // Création du tableau Tabulator
+    var table = new Tabulator("#asset-table", {
+        height: "400px",
+        layout: "fitColumns",
+        reactiveData: true,
+        data: tabledata,
+        columns: columns
+    });
+
+    // Boutons dynamiques
+    document.getElementById("add-row").addEventListener("click", function(){
+        var newRow = {};
+        columns.forEach(function(col) { if(col.field) newRow[col.field] = ""; });
+        tabledata.push(newRow);
+        table.replaceData(tabledata);
+    });
+    document.getElementById("delete-row").addEventListener("click", function(){
+        tabledata.pop();
+        table.replaceData(tabledata);
+    });
+    document.getElementById("update-row").addEventListener("click", function(){
+        if(tabledata.length > 0) {
+            var firstKey = Object.keys(tabledata[0])[0];
+            tabledata[0][firstKey] = "MODIFIÉ";
+            table.replaceData(tabledata);
+        }
+    });
+
+    // Bouton fetch (API JS moderne)
+    document.getElementById('action-button').addEventListener('click', function() {
+        fetch('/trading_app/post/fetch', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken')
+            },
+            body: JSON.stringify({action: 'fetch_test'})
+        })
+        .then(response => response.json())
+        .then(data => {
+            alert(JSON.stringify(data));
+        })
+        .catch(error => console.error('Error:', error));
+    });
+</script>
+{% endblock %} 
