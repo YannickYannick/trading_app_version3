@@ -3,6 +3,7 @@ from .models import Asset
 import json
 from django.core.serializers.json import DjangoJSONEncoder
 from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
 
 # Create your views here.
 
@@ -17,6 +18,7 @@ def asset_tabulator(request):
         'data_assets': json.dumps(data_assets, cls=DjangoJSONEncoder),
     })
 
+#@csrf_exempt
 def save_asset_ajax(request):
     if request.method == "POST":
         data = request.POST.dict() if request.POST else json.loads(request.body)

@@ -18,7 +18,8 @@
 
 <script>
     // Données injectées depuis Django
-    var tabledata = {{ data_assets|safe }};
+    // version précédente : var tabledata = {{ data_assets|default:"[]"|safe }};
+    var tabledata = JSON.parse('{{ data_assets|default:"[]"|escapejs }}');
 
     // Colonnes dynamiques selon les clés du premier asset
     var columns = [];
@@ -36,6 +37,7 @@
         button.addEventListener("click", function() {
             var rowData = cell.getRow().getData();
             const csrftoken = getCookie('csrftoken');
+            console.log('CSRF token:', csrftoken);
             $.ajax({
                 url: '/assets/save/',  // <-- nouvelle URL
                 type: 'POST',

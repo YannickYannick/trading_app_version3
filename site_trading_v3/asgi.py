@@ -14,3 +14,8 @@ from django.core.asgi import get_asgi_application
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "site_trading_v3.settings")
 
 application = get_asgi_application()
+
+import os
+print(os.environ.get('DJANGO_SETTINGS_MODULE'))
+
+
