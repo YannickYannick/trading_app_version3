@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Trades Tabulator{% endblock %}
+{% block content %}
+<h1>Trades - Tableau dynamique</h1>
+<div id="trade-table"></div>
+<button id="add-row">Ajouter une ligne</button>
+<button id="delete-row">Supprimer la dernière ligne</button>
+<button id="update-row">Modifier la première ligne</button>
+<button id="save-all">Save All</button>
+<link href="https://cdnjs.cloudflare.com/ajax/libs/tabulator/5.0.3/css/tabulator.min.css" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tabulator/5.0.3/js/tabulator.min.js"></script>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script>
+    var tabledata = JSON.parse('{{ data_trades|default:"[]"|escapejs }}');
+    var columns = [];
+    if (tabledata.length > 0) {
+        Object.keys(tabledata[0]).forEach(function(key) {
+            columns.push({ title: key, field: key, editor: "input" });
+        });
+    }
+    function buttonFormatter(cell) {
+        var button = document.createElement("button");
+        button.textContent = "Save !";
+        button.addEventListener("click", function() {
+            var rowData = cell.getRow().getData();
+            const csrftoken = getCookie('csrftoken');
+            $.ajax({
+                url: '/trades/save/',
+                type: 'POST',
+                data: rowData,
+                headers: {'X-CSRFToken': csrftoken },
+                success: function(response) {
+                    alert("Enregistré !");
+                },
+                error: function(xhr) {
+                    console.log("Erreur lors de l'enregistrement :", xhr.responseText);
+                    alert("Erreur lors de l'enregistrement !\n" + xhr.responseText);
+                }
+            });
+        });
+        return button;
+    }
+    if (columns.length > 0) {
+        columns.push({ title: "Action", formatter: buttonFormatter, headerSort: false });
+    }
+    var table = new Tabulator("#trade-table", {
+        height: "400px",
+        layout: "fitColumns",
+        reactiveData: true,
+        data: tabledata,
+        columns: columns
+    });
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+    document.getElementById("add-row").addEventListener("click", function(){
+        var newRow = {
+            user: 1,   // ID d'un user existant
+            asset: 1   // ID d'un asset existant
+        };
+        columns.forEach(function(col) { if(col.field && !newRow[col.field]) newRow[col.field] = ""; });
+        tabledata.push(newRow);
+        table.replaceData(tabledata);
+    });
+    document.getElementById("delete-row").addEventListener("click", function(){
+        tabledata.pop();
+        table.replaceData(tabledata);
+    });
+    document.getElementById("update-row").addEventListener("click", function(){
+        if(tabledata.length > 0) {
+            var firstKey = Object.keys(tabledata[0])[0];
+            tabledata[0][firstKey] = "MODIFIÉ";
+            table.replaceData(tabledata);
+        }
+    });
+    document.getElementById("save-all").addEventListener("click", function(){
+        const csrftoken = getCookie('csrftoken');
+        tabledata.forEach(function(rowData) {
+            $.ajax({
+                url: '/trades/save/',
+                type: 'POST',
+                data: rowData,
+                headers: {'X-CSRFToken': csrftoken },
+                success: function(response) {
+                    // Optionnel : afficher une notification ou mettre à jour l'UI
+                },
+                error: function(xhr) {
+                    alert("Erreur lors de l'enregistrement d'une ligne !");
+                }
+            });
+        });
+        alert("Toutes les lignes ont été envoyées pour sauvegarde.");
+    });
+</script>
+{% endblock %}

@@ -4,6 +4,7 @@ import json
 from django.core.serializers.json import DjangoJSONEncoder
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
+from .models import Trade, Position, Strategy
 
 # Create your views here.
 
@@ -41,6 +42,56 @@ def save_asset_ajax(request):
             asset.id_from_platform = data.get("id_from_platform", asset.id_from_platform)
             asset.save()
             return JsonResponse({"success": True, "created": created})
+        except Exception as e:
+            return JsonResponse({"error": str(e)}, status=400)
+    return JsonResponse({"error": "Invalid request"}, status=400)
+
+def trade_tabulator(request):
+    trades = Trade.objects.all().values()
+    data_trades = list(trades)
+    return render(request, 'trading_app/trade_tabulator.html', {
+        'data_trades': json.dumps(data_trades, cls=DjangoJSONEncoder),
+    })
+
+def position_tabulator(request):
+    positions = Position.objects.all().values()
+    data_positions = list(positions)
+    return render(request, 'trading_app/position_tabulator.html', {
+        'data_positions': json.dumps(data_positions, cls=DjangoJSONEncoder),
+    })
+
+def strategy_tabulator(request):
+    strategies = Strategy.objects.all().values()
+    data_strategies = list(strategies)
+    return render(request, 'trading_app/strategy_tabulator.html', {
+        'data_strategies': json.dumps(data_strategies, cls=DjangoJSONEncoder),
+    })
+
+@csrf_exempt
+def save_trade_ajax(request):
+    if request.method == "POST":
+        data = request.POST.dict() if request.POST else json.loads(request.body)
+        # Vérifie les champs obligatoires
+        required_fields = ["user", "asset", "size", "price", "side", "platform"]
+        missing = [field for field in required_fields if not data.get(field)]
+        if missing:
+            return JsonResponse({"error": f"Champs manquants : {', '.join(missing)}"}, status=400)
+        try:
+            trade_id = data.get("id")
+            if trade_id:
+                trade = Trade.objects.get(id=trade_id)
+            else:
+                trade = Trade()
+            # Remplis les champs
+            trade.user_id = data["user"]  # doit être l'ID d'un User existant
+            trade.asset_id = data["asset"]  # doit être l'ID d'un Asset existant
+            trade.size = data["size"]
+            trade.price = data["price"]
+            trade.side = data["side"]
+            trade.platform = data["platform"]
+            # ... autres champs
+            trade.save()
+            return JsonResponse({"success": True})
         except Exception as e:
             return JsonResponse({"error": str(e)}, status=400)
     return JsonResponse({"error": "Invalid request"}, status=400)
