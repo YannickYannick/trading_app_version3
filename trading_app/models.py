@@ -41,6 +41,59 @@ class Asset(models.Model):
     def __str__(self):
         return f"{self.symbol} ({self.platform})"
 
+class BrokerCredentials(models.Model):
+    """Modèle pour stocker les credentials des courtiers"""
+    BROKER_CHOICES = [
+        ('saxo', 'Saxo Bank'),
+        ('binance', 'Binance'),
+    ]
+    
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    broker_type = models.CharField(max_length=20, choices=BROKER_CHOICES)
+    name = models.CharField(max_length=100, help_text="Nom pour identifier cette configuration")
+    
+    # Credentials Saxo
+    saxo_client_id = models.CharField(max_length=100, blank=True, null=True)
+    saxo_client_secret = models.CharField(max_length=100, blank=True, null=True)
+    saxo_redirect_uri = models.URLField(blank=True, null=True)
+    saxo_access_token = models.TextField(blank=True, null=True)
+    saxo_refresh_token = models.TextField(blank=True, null=True)
+    saxo_token_expires_at = models.DateTimeField(blank=True, null=True)
+    
+    # Credentials Binance
+    binance_api_key = models.CharField(max_length=100, blank=True, null=True)
+    binance_api_secret = models.CharField(max_length=100, blank=True, null=True)
+    binance_testnet = models.BooleanField(default=False)
+    
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        unique_together = ['user', 'broker_type', 'name']
+    
+    def __str__(self):
+        return f"{self.user.username} - {self.get_broker_type_display()} - {self.name}"
+    
+    def get_credentials_dict(self) -> dict:
+        """Retourner les credentials sous forme de dictionnaire"""
+        if self.broker_type == 'saxo':
+            return {
+                'client_id': self.saxo_client_id,
+                'client_secret': self.saxo_client_secret,
+                'redirect_uri': self.saxo_redirect_uri,
+                'access_token': self.saxo_access_token,
+                'refresh_token': self.saxo_refresh_token,
+                'token_expires_at': self.saxo_token_expires_at,
+            }
+        elif self.broker_type == 'binance':
+            return {
+                'api_key': self.binance_api_key,
+                'api_secret': self.binance_api_secret,
+                'testnet': self.binance_testnet,
+            }
+        return {}
+
 class Strategy(models.Model):
     """Modèle pour les stratégies de trading"""
     name = models.CharField(max_length=100, unique=True)
@@ -87,4 +140,4 @@ class Trade(models.Model):
     platform = models.CharField(max_length=20)
     
     def __str__(self):
-        return f"{self.side} {self.size} {self.asset.symbol} @ {self.price}"
+        return f"{self.side} {self.size} {self.asset} @ {self.price}"

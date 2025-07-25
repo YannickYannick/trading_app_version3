@@ -1,10 +1,12 @@
 from django.shortcuts import render
-from .models import Asset
+from .models import Asset, Trade, Position, Strategy, BrokerCredentials
 import json
 from django.core.serializers.json import DjangoJSONEncoder
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-from .models import Trade, Position, Strategy
+from django.contrib.auth.decorators import login_required
+from .services import BrokerService, SaxoAuthService
+from .brokers.factory import BrokerFactory
 
 # Create your views here.
 
@@ -67,32 +69,201 @@ def strategy_tabulator(request):
         'data_strategies': json.dumps(data_strategies, cls=DjangoJSONEncoder),
     })
 
-@csrf_exempt
-def save_trade_ajax(request):
-    if request.method == "POST":
-        data = request.POST.dict() if request.POST else json.loads(request.body)
-        # Vérifie les champs obligatoires
-        required_fields = ["user", "asset", "size", "price", "side", "platform"]
-        missing = [field for field in required_fields if not data.get(field)]
-        if missing:
-            return JsonResponse({"error": f"Champs manquants : {', '.join(missing)}"}, status=400)
+# Nouvelles vues pour les courtiers
+@login_required
+def broker_dashboard(request):
+    """Tableau de bord des courtiers"""
+    broker_service = BrokerService(request.user)
+    user_brokers = broker_service.get_user_brokers()
+    
+    return render(request, 'trading_app/broker_dashboard.html', {
+        'brokers': user_brokers,
+        'supported_brokers': BrokerFactory.get_supported_brokers(),
+    })
+
+@login_required
+def broker_config(request, broker_id=None):
+    """Configuration d'un courtier"""
+    broker = None
+    if broker_id:
         try:
-            trade_id = data.get("id")
-            if trade_id:
-                trade = Trade.objects.get(id=trade_id)
+            broker = BrokerCredentials.objects.get(id=broker_id, user=request.user)
+        except BrokerCredentials.DoesNotExist:
+            pass
+    
+    if request.method == 'POST':
+        broker_type = request.POST.get('broker_type')
+        name = request.POST.get('name')
+        
+        if broker_type and name:
+            if broker:
+                # Mise à jour
+                broker.broker_type = broker_type
+                broker.name = name
+                
+                if broker_type == 'saxo':
+                    broker.saxo_client_id = request.POST.get('saxo_client_id')
+                    broker.saxo_client_secret = request.POST.get('saxo_client_secret')
+                    broker.saxo_redirect_uri = request.POST.get('saxo_redirect_uri')
+                elif broker_type == 'binance':
+                    broker.binance_api_key = request.POST.get('binance_api_key')
+                    broker.binance_api_secret = request.POST.get('binance_api_secret')
+                    broker.binance_testnet = request.POST.get('binance_testnet') == 'on'
+                
+                broker.save()
             else:
-                trade = Trade()
-            # Remplis les champs
-            trade.user_id = data["user"]  # doit être l'ID d'un User existant
-            trade.asset_id = data["asset"]  # doit être l'ID d'un Asset existant
-            trade.size = data["size"]
-            trade.price = data["price"]
-            trade.side = data["side"]
-            trade.platform = data["platform"]
-            # ... autres champs
-            trade.save()
-            return JsonResponse({"success": True})
-        except Exception as e:
-            return JsonResponse({"error": str(e)}, status=400)
-    return JsonResponse({"error": "Invalid request"}, status=400)
+                # Création
+                broker = BrokerCredentials.objects.create(
+                    user=request.user,
+                    broker_type=broker_type,
+                    name=name,
+                    saxo_client_id=request.POST.get('saxo_client_id'),
+                    saxo_client_secret=request.POST.get('saxo_client_secret'),
+                    saxo_redirect_uri=request.POST.get('saxo_redirect_uri'),
+                    binance_api_key=request.POST.get('binance_api_key'),
+                    binance_api_secret=request.POST.get('binance_api_secret'),
+                    binance_testnet=request.POST.get('binance_testnet') == 'on',
+                )
+    
+    return render(request, 'trading_app/broker_config.html', {
+        'broker': broker,
+        'supported_brokers': BrokerFactory.get_supported_brokers(),
+    })
+
+@login_required
+def saxo_auth_callback(request):
+    """Callback pour l'authentification Saxo"""
+    code = request.GET.get('code')
+    state = request.GET.get('state')
+    
+    if not code:
+        return JsonResponse({"error": "Code d'autorisation manquant"}, status=400)
+    
+    # Récupérer les credentials Saxo de l'utilisateur
+    try:
+        broker_creds = BrokerCredentials.objects.filter(
+            user=request.user, 
+            broker_type='saxo',
+            is_active=True
+        ).first()
+        
+        if not broker_creds:
+            return JsonResponse({"error": "Aucune configuration Saxo trouvée"}, status=400)
+        
+        # Échanger le code contre des tokens
+        tokens = SaxoAuthService.exchange_code_for_tokens(
+            code,
+            broker_creds.saxo_client_id,
+            broker_creds.saxo_client_secret,
+            broker_creds.saxo_redirect_uri
+        )
+        
+        # Sauvegarder les tokens
+        from datetime import datetime, timedelta
+        broker_creds.saxo_access_token = tokens.get('access_token')
+        broker_creds.saxo_refresh_token = tokens.get('refresh_token')
+        broker_creds.saxo_token_expires_at = datetime.now() + timedelta(seconds=tokens.get('expires_in', 0))
+        broker_creds.save()
+        
+        return JsonResponse({"success": True, "message": "Authentification Saxo réussie"})
+        
+    except Exception as e:
+        return JsonResponse({"error": f"Erreur d'authentification: {str(e)}"}, status=400)
+
+@login_required
+@csrf_exempt
+def sync_broker_data(request, broker_id):
+    """Synchroniser les données depuis un courtier"""
+    try:
+        broker_creds = BrokerCredentials.objects.get(id=broker_id, user=request.user)
+        broker_service = BrokerService(request.user)
+        
+        data_type = request.POST.get('data_type', 'positions')
+        
+        if data_type == 'positions':
+            positions = broker_service.sync_positions_from_broker(broker_creds)
+            return JsonResponse({
+                "success": True,
+                "message": f"{len(positions)} positions synchronisées"
+            })
+        elif data_type == 'trades':
+            trades = broker_service.sync_trades_from_broker(broker_creds)
+            return JsonResponse({
+                "success": True,
+                "message": f"{len(trades)} trades synchronisés"
+            })
+        else:
+            return JsonResponse({"error": "Type de données non supporté"}, status=400)
+            
+    except BrokerCredentials.DoesNotExist:
+        return JsonResponse({"error": "Courtier non trouvé"}, status=404)
+    except Exception as e:
+        return JsonResponse({"error": f"Erreur de synchronisation: {str(e)}"}, status=400)
+
+@login_required
+@csrf_exempt
+def place_broker_order(request, broker_id):
+    """Placer un ordre via un courtier"""
+    try:
+        broker_creds = BrokerCredentials.objects.get(id=broker_id, user=request.user)
+        broker_service = BrokerService(request.user)
+        
+        data = json.loads(request.body)
+        symbol = data.get('symbol')
+        side = data.get('side')
+        size = data.get('size')
+        order_type = data.get('order_type', 'MARKET')
+        price = data.get('price')
+        
+        if not all([symbol, side, size]):
+            return JsonResponse({"error": "Paramètres manquants"}, status=400)
+        
+        from decimal import Decimal
+        result = broker_service.place_order(
+            broker_creds,
+            symbol,
+            side,
+            Decimal(str(size)),
+            order_type,
+            Decimal(str(price)) if price else None
+        )
+        
+        return JsonResponse(result)
+        
+    except BrokerCredentials.DoesNotExist:
+        return JsonResponse({"error": "Courtier non trouvé"}, status=404)
+    except Exception as e:
+        return JsonResponse({"error": f"Erreur de placement d'ordre: {str(e)}"}, status=400)
+
+def test_broker_connection(request, broker_id):
+    """Test de connexion à un broker spécifique"""
+    try:
+        credentials = BrokerCredentials.objects.get(id=broker_id, user=request.user)
+        broker = BrokerFactory.create_broker(credentials.broker_type, request.user, credentials.get_credentials_dict())
+        
+        if credentials.broker_type == 'binance':
+            # Test spécifique pour Binance
+            test_result = broker.test_connection()
+            auth_result = broker.authenticate()
+            
+            return JsonResponse({
+                'success': True,
+                'test_connection': test_result,
+                'authentication': auth_result,
+                'broker_type': credentials.broker_type,
+                'base_url': broker.base_url if hasattr(broker, 'base_url') else 'N/A'
+            })
+        else:
+            # Test générique pour autres brokers
+            auth_result = broker.authenticate()
+            return JsonResponse({
+                'success': True,
+                'authentication': auth_result,
+                'broker_type': credentials.broker_type
+            })
+            
+    except BrokerCredentials.DoesNotExist:
+        return JsonResponse({'success': False, 'error': 'Broker non trouvé'})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
 

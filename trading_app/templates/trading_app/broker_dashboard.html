@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Tableau de bord des courtiers{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1>Tableau de bord des courtiers</h1>
+    
+    <!-- Ajouter un nouveau courtier -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5>Ajouter un nouveau courtier</h5>
+        </div>
+        <div class="card-body">
+            <a href="{% url 'broker_config' %}" class="btn btn-primary">
+                <i class="fas fa-plus"></i> Nouveau courtier
+            </a>
+        </div>
+    </div>
+    
+    <!-- Liste des courtiers configurés -->
+    <div class="row">
+        {% for broker in brokers %}
+        <div class="col-md-6 mb-4">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5>{{ broker.get_broker_type_display }} - {{ broker.name }}</h5>
+                    <div>
+                        <a href="{% url 'broker_config_edit' broker.id %}" class="btn btn-sm btn-outline-primary">
+                            <i class="fas fa-edit"></i>
+                        </a>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <p><strong>Statut:</strong> 
+                        {% if broker.is_active %}
+                            <span class="badge badge-success">Actif</span>
+                        {% else %}
+                            <span class="badge badge-secondary">Inactif</span>
+                        {% endif %}
+                    </p>
+                    
+                    {% if broker.broker_type == 'saxo' %}
+                        <p><strong>Client ID:</strong> {{ broker.saxo_client_id|default:"Non configuré" }}</p>
+                        <p><strong>Token:</strong> 
+                            {% if broker.saxo_access_token %}
+                                <span class="badge badge-success">Connecté</span>
+                            {% else %}
+                                <span class="badge badge-warning">Non connecté</span>
+                            {% endif %}
+                        </p>
+                    {% elif broker.broker_type == 'binance' %}
+                        <p><strong>API Key:</strong> {{ broker.binance_api_key|default:"Non configuré" }}</p>
+                        <p><strong>Mode:</strong> 
+                            {% if broker.binance_testnet %}
+                                <span class="badge badge-info">Testnet</span>
+                            {% else %}
+                                <span class="badge badge-warning">Production</span>
+                            {% endif %}
+                        </p>
+                    {% endif %}
+                    
+                    <div class="btn-group" role="group">
+                        <button class="btn btn-sm btn-outline-success" onclick="syncData({{ broker.id }}, 'positions')">
+                            <i class="fas fa-sync"></i> Positions
+                        </button>
+                        <button class="btn btn-sm btn-outline-info" onclick="syncData({{ broker.id }}, 'trades')">
+                            <i class="fas fa-history"></i> Trades
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% empty %}
+        <div class="col-12">
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle"></i>
+                Aucun courtier configuré. 
+                <a href="{% url 'broker_config' %}" class="alert-link">Ajouter votre premier courtier</a>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<script>
+function syncData(brokerId, dataType) {
+    const button = event.target;
+    const originalText = button.innerHTML;
+    
+    // Afficher le loading
+    button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Synchronisation...';
+    button.disabled = true;
+    
+    fetch(`/brokers/${brokerId}/sync/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-CSRFToken': getCookie('csrftoken')
+        },
+        body: `data_type=${dataType}`
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(data.message);
+        } else {
+            alert('Erreur: ' + data.error);
+        }
+    })
+    .catch(error => {
+        alert('Erreur de synchronisation: ' + error);
+    })
+    .finally(() => {
+        // Restaurer le bouton
+        button.innerHTML = originalText;
+        button.disabled = false;
+    });
+}
+
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+</script>
+{% endblock %} 
