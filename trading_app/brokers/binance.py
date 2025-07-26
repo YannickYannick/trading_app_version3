@@ -237,54 +237,77 @@ class BinanceBroker(BrokerBase):
             print(f"❌ Erreur récupération positions: {e}")
             return []
     
-    def get_trades(self, limit=50, symbols=None):
-        """Récupérer les trades pour une liste de symboles"""
-        print(f"\n=== RÉCUPÉRATION DES TRADES (limite: {limit} par symbole) ===")
+    def get_trades(self, limit: int = 100) -> List[Dict[str, Any]]:
+        """Récupère les trades depuis Binance"""
+        print("🔍 Récupération des trades Binance...")
         
-        all_trades = {}
-        total_trades = 0
+        if not self.authenticate():
+            print("❌ Échec de l'authentification Binance")
+            return []
         
-        # Default symbols if none provided
-        if symbols is None:
-            symbols = ["BTCEUR", "ETHEUR"]
-
         try:
+            # Récupérer les ordres pour les symbols spécifiques
+            symbols = ["BTCEUR", "ETHEUR"]  # Ajouter d'autres symbols si nécessaire
+            
+            all_trades = []
+            
             for symbol in symbols:
-                print(f"\n🔍 Symbol: {symbol}")
-                endpoint = "/api/v3/myTrades"
-                timestamp = self._get_server_time()
-
-                params = {
-                    "symbol": symbol,
-                    "timestamp": timestamp,
-                    "recvWindow": 5000,
-                    "limit": limit
-                }
-
-                signed_params = self._sign_payload(params)
-                url = f"{self.base_url}{endpoint}"
-                response = requests.get(url, headers=self._get_headers(), params=signed_params)
-
-                if response.status_code == 200:
-                    trades = response.json()
-                    if trades:
-                        total_trades += len(trades)
-                        all_trades[symbol] = trades
-                        print(f"✅ {len(trades)} trades récupérés pour {symbol}")
-                        for i, trade in enumerate(trades[:5]):
-                            direction = "BUY" if trade.get("isBuyer") else "SELL"
-                            print(f"  • {i+1:02d}: {direction} {trade.get('qty')} @ {trade.get('price')}")
+                try:
+                    print(f"📥 Récupération des ordres pour {symbol}")
+                    
+                    endpoint = "/api/v3/allOrders"
+                    timestamp = self._get_server_time()
+                    params = {
+                        "symbol": symbol,
+                        "timestamp": timestamp,
+                        "recvWindow": 5000,
+                        "limit": limit
+                    }
+                    
+                    signed_params = self._sign_payload(params)
+                    url = f"{self.base_url}{endpoint}"
+                    response = requests.get(url, headers=self._get_headers(), params=signed_params)
+                    
+                    if response.status_code == 200:
+                        orders = response.json()
+                        print(f"✅ {len(orders)} ordres récupérés pour {symbol}")
+                        
+                        for order in orders:
+                            try:
+                                # Formater selon le format attendu
+                                formatted_trade = {
+                                    'symbol': order.get("symbol", symbol),
+                                    'name': order.get("symbol", symbol),  # Binance n'a pas de nom descriptif
+                                    'type': 'Crypto',  # Par défaut pour Binance
+                                    'market': 'Binance',
+                                    'size': float(order.get("executedQty", 0)),
+                                    'price': float(order.get("price", 0)),
+                                    'side': order.get("side", "BUY").upper(),
+                                    'timestamp': self._convert_timestamp(order.get("time")),
+                                    'sector': 'Cryptocurrency',
+                                    'industry': 'Digital Assets',
+                                    'market_cap': 0.0,
+                                    'price_history': 'xxxx'
+                                }
+                                
+                                all_trades.append(formatted_trade)
+                                
+                            except Exception as e:
+                                print(f"❌ Erreur formatage trade {symbol}: {e}")
+                                continue
                     else:
-                        print("⚠️ Aucun trade trouvé pour ce symbole")
-                else:
-                    print(f"❌ {symbol} - Erreur {response.status_code}: {response.text}")
-
-            print(f"\n🎯 Total des trades récupérés: {total_trades}")
+                        print(f"❌ Erreur API Binance pour {symbol}: {response.status_code}")
+                        
+                except Exception as e:
+                    print(f"❌ Erreur récupération trades pour {symbol}: {e}")
+                    continue
+            
+            print(f"📊 Total: {len(all_trades)} trades formatés")
             return all_trades
-
+            
         except Exception as e:
-            print(f"❌ Erreur globale lors de la récupération des trades: {e}")
-            return {}
+            print(f"❌ Erreur récupération trades Binance: {e}")
+            return []
 
     
     def get_assets(self, asset_type: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -421,7 +444,9 @@ class BinanceBroker(BrokerBase):
             return {"error": f"Erreur statut ordre Binance: {e}"} 
 
     def _convert_timestamp(self, timestamp_ms: int) -> str:
-        """Convertir un timestamp millisecondes en date lisible"""
-        from datetime import datetime
-        dt_object = datetime.fromtimestamp(timestamp_ms / 1000)
-        return dt_object.strftime('%Y-%m-%d %H:%M:%S') 
+        """Convertit un timestamp millisecondes en string datetime"""
+        try:
+            dt = datetime.fromtimestamp(timestamp_ms / 1000)
+            return dt.strftime('%Y-%m-%d %H:%M:%S')
+        except:
+            return datetime.now().strftime('%Y-%m-%d %H:%M:%S') 

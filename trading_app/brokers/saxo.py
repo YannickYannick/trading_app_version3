@@ -26,6 +26,7 @@ class SaxoBroker(BrokerBase):
         self.access_token = credentials.get('access_token')
         self.refresh_token = credentials.get('refresh_token')
         self.token_expires_at = credentials.get('token_expires_at')
+        self.account_key = None  # Sera défini lors de l'authentification
     
     def get_auth_url(self, state: str = "xyz123") -> str:
         """Générer l'URL d'autorisation OAuth2"""
@@ -129,77 +130,171 @@ class SaxoBroker(BrokerBase):
             return []
     
     def get_positions(self) -> List[Dict[str, Any]]:
-        """Récupérer les positions ouvertes"""
-        if not self.is_authenticated():
-            return []
-            
-        # Récupérer d'abord les comptes
-        accounts = self.get_accounts()
-        if not accounts:
-            return []
-            
-        all_positions = []
-
-        for account in accounts:
-            account_key = account.get("AccountKey")
-            if account_key:
-                url = f"{self.base_url}/port/v1/accounts/{account_key}/positions"
-                headers = {"Authorization": f"Bearer {self.access_token}"}
-                try:
-                    positions_url = "https://gateway.saxobank.com/sim/openapi/port/v1/positions/me"
-                    headers = {"Authorization": f"Bearer {self.access_token}","Content-Type": "application/json"}
-                    params = {"$top": 100}
-
-                    response = requests.get(positions_url, headers=headers, params=params)
-                    response.raise_for_status()
-                    data = response.json()
-                    positions = data.get("Data", [])
-                    all_positions.extend(positions)
-                    print(" Yannick !!!")
-                #try:
-                    #response = requests.get(url, headers=headers)
-                    #response.raise_for_status()
-                    #data = response.json()
-                    #positions = data.get("Data", [])
-                    #all_positions.extend(positions)
-                except Exception as e:
-                    print(f"Erreur récupération positions Saxo: {e}")
+        """Récupère les positions depuis Saxo Bank"""
+        print("🔍 Récupération des positions Saxo...")
         
-        return all_positions
-    
-    def get_trades(self, limit: int = 100) -> List[Dict[str, Any]]:
-        """Récupérer l'historique des trades"""
-        if not self.is_authenticated():
+        if not self.authenticate():
+            print("❌ Échec de l'authentification Saxo")
             return []
+        
+        try:
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/json"
+            }
             
-        accounts = self.get_accounts()
-        if not accounts:
-            return []
+            # Utiliser l'endpoint correct pour les positions
+            url = f"{self.base_url}/port/v1/positions/me"
+            params = {"$top": 100}
             
-        all_trades = []
-        for account in accounts:
-            account_key = account.get("AccountKey")
-            if account_key:
-                url = f"{self.base_url}/port/v1/trades/me"
-                headers = {"Authorization": f"Bearer {self.access_token}"}
-                params = {"$top": limit}
-                print("vérification")
-                print(url)
-                print(headers)
-                print(params)
-
+            print(f"🌐 Appel API: {url}")
+            response = requests.get(url, headers=headers, params=params)
+            
+            if response.status_code == 200:
+                data = response.json()
+                positions = data.get("Data", [])
                 
-                try:
-                    response = requests.get(url, headers=headers, params=params)
-                    response.raise_for_status()
-                    data = response.json()
-                    trades = data.get("Data", [])
-                    all_trades.extend(trades)
-                    print(" Yannick !!! ooo 2")
-                except Exception as e:
-                    print(f"Erreur récupération trades Saxo: {e}")
+                formatted_positions = []
+                for i, pos in enumerate(positions):
+                    try:
+                        base = pos.get("PositionBase", {})
+                        view = pos.get("PositionView", {})
+                        
+                        # Extraire les informations de base
+                        uic = base.get("Uic")
+                        asset_type = base.get("AssetType", "Stock")
+                        amount = base.get("Amount", 0)
+                        open_price = base.get("OpenPrice", 0)
+                        
+                        # Récupérer le nom de l'instrument
+                        instrument_name = self._get_instrument_name(uic, asset_type)
+                        
+                        # Créer un symbole unique pour éviter les doublons
+                        unique_symbol = f"{uic}_{i}" if uic else f"Unknown_{i}"
+                        
+                        # Formater selon le format attendu par le service
+                        formatted_position = {
+                            'symbol': unique_symbol,
+                            'name': instrument_name,
+                            'type': asset_type,
+                            'market': 'Saxo',
+                            'size': float(amount) if amount else 0.0,
+                            'entry_price': float(open_price) if open_price else 0.0,
+                            'current_price': float(open_price) if open_price else 0.0,
+                            'side': 'BUY' if float(amount) > 0 else 'SELL',
+                            'status': base.get("Status", "OPEN"),
+                            'pnl': float(view.get("ProfitLossOnTrade", 0)),
+                            'sector': 'Unknown',
+                            'industry': 'Unknown',
+                            'market_cap': 0.0,
+                            'price_history': 'xxxx'
+                        }
+                        
+                        formatted_positions.append(formatted_position)
+                        print(f"✅ Position formatée: {formatted_position['symbol']} - {formatted_position['name']}")
+                        
+                    except Exception as e:
+                        print(f"❌ Erreur formatage position: {e}")
+                        continue
+                
+                print(f"📊 {len(formatted_positions)} positions formatées")
+                return formatted_positions
+                
+            else:
+                print(f"❌ Erreur API Saxo: {response.status_code} - {response.text}")
+                return []
+                
+        except Exception as e:
+            print(f"❌ Erreur récupération positions Saxo: {e}")
+            return []
+
+    def get_trades(self, limit: int = 100) -> List[Dict[str, Any]]:
+        """Récupère les trades depuis Saxo Bank"""
+        print("🔍 Récupération des trades Saxo...")
         
-        return all_trades
+        if not self.authenticate():
+            print("❌ Échec de l'authentification Saxo")
+            return []
+        
+        if not self.account_key:
+            print("❌ Pas de AccountKey disponible")
+            return []
+        
+        try:
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/json"
+            }
+            
+            # Utiliser l'endpoint correct pour les trades
+            url = f"{self.base_url}/port/v1/accounts/{self.account_key}/trades"
+            params = {"$top": limit}
+            
+            print(f"🌐 Appel API: {url}")
+            print(f"📋 Headers: {headers}")
+            print(f"📋 Params: {params}")
+            
+            response = requests.get(url, headers=headers, params=params)
+            
+            print(f"📊 Status Code: {response.status_code}")
+            print(f"📊 Response: {response.text[:500]}...")  # Afficher les 500 premiers caractères
+            
+            if response.status_code == 200:
+                data = response.json()
+                trades = data.get("Data", [])
+                
+                print(f"📊 {len(trades)} trades trouvés dans la réponse")
+                
+                formatted_trades = []
+                for trade in trades:
+                    try:
+                        print(f"🔍 Traitement trade: {trade}")
+                        
+                        # Extraire les informations du trade
+                        uic = trade.get("Uic")
+                        asset_type = trade.get("AssetType", "Stock")
+                        amount = trade.get("Amount", 0)
+                        price = trade.get("Price", 0)
+                        side = trade.get("BuySell", "Buy")
+                        timestamp = trade.get("TradeDateTime")
+                        
+                        # Récupérer le nom de l'instrument
+                        instrument_name = self._get_instrument_name(uic, asset_type)
+                        
+                        # Formater selon le format attendu
+                        formatted_trade = {
+                            'symbol': str(uic) if uic else 'Unknown',
+                            'name': instrument_name,
+                            'type': asset_type,
+                            'market': 'Saxo',
+                            'size': float(amount) if amount else 0.0,
+                            'price': float(price) if price else 0.0,
+                            'side': 'BUY' if side == 'Buy' else 'SELL',
+                            'timestamp': timestamp,
+                            'sector': 'Unknown',
+                            'industry': 'Unknown',
+                            'market_cap': 0.0,
+                            'price_history': 'xxxx'
+                        }
+                        
+                        formatted_trades.append(formatted_trade)
+                        print(f"✅ Trade formaté: {formatted_trade['symbol']} - {formatted_trade['name']}")
+                        
+                    except Exception as e:
+                        print(f"❌ Erreur formatage trade: {e}")
+                        print(f"❌ Trade data: {trade}")
+                        continue
+                
+                print(f"📊 {len(formatted_trades)} trades formatés")
+                return formatted_trades
+                
+            else:
+                print(f"❌ Erreur API Saxo: {response.status_code} - {response.text}")
+                return []
+                
+        except Exception as e:
+            print(f"❌ Erreur récupération trades Saxo: {e}")
+            return []
     
     def get_assets(self, asset_type: Optional[str] = None) -> List[Dict[str, Any]]:
         """Récupérer les actifs disponibles"""
@@ -342,3 +437,28 @@ class SaxoBroker(BrokerBase):
         """Vérifier si on utilise un token 24h"""
         return (self.access_token and self.refresh_token and 
                 self.access_token == self.refresh_token) 
+
+    def _get_instrument_name(self, uic: str, asset_type: str = "Stock") -> str:
+        """Récupère le nom de l'instrument via l'API Saxo"""
+        try:
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/json"
+            }
+            
+            url = f"{self.base_url}/ref/v1/instruments/details"
+            params = {"Uic": uic, "AssetType": asset_type}
+            
+            response = requests.get(url, headers=headers, params=params)
+            
+            if response.status_code == 200:
+                data = response.json()
+                instruments = data.get("Data", [])
+                if instruments:
+                    return instruments[0].get("Description", f"Unknown {uic}")
+            
+            return f"Unknown {uic}"
+            
+        except Exception as e:
+            print(f"❌ Erreur récupération nom instrument: {e}")
+            return f"Unknown {uic}" 

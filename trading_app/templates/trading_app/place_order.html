@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Passer un Ordre{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1>Passer un Ordre</h1>
+    
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Nouvel Ordre</h5>
+                </div>
+                <div class="card-body">
+                    <form id="order-form">
+                        <div class="mb-3">
+                            <label for="asset_tradable" class="form-label">Actif Tradable</label>
+                            <select class="form-select" id="asset_tradable" name="asset_tradable_id" required>
+                                <option value="">Sélectionner un actif</option>
+                                {% for at in asset_tradables %}
+                                <option value="{{ at.id }}" data-platform="{{ at.platform }}">
+                                    {{ at.symbol }} - {{ at.name }} ({{ at.platform }})
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="amount" class="form-label">Quantité</label>
+                            <input type="number" class="form-control" id="amount" name="amount" 
+                                   min="1" step="1" required>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="side" class="form-label">Type d'ordre</label>
+                            <select class="form-select" id="side" name="side" required>
+                                <option value="Buy">Acheter</option>
+                                <option value="Sell">Vendre</option>
+                            </select>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="broker_type" class="form-label">Broker</label>
+                            <select class="form-select" id="broker_type" name="broker_type" required>
+                                <option value="saxo">Saxo Bank</option>
+                                <option value="binance">Binance</option>
+                            </select>
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary">Passer l'ordre</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Résultat</h5>
+                </div>
+                <div class="card-body">
+                    <div id="order-result">
+                        <p class="text-muted">Résultat de l'ordre apparaîtra ici...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+
+document.getElementById('order-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const form = e.target;
+    const data = {
+        asset_tradable_id: form.asset_tradable_id.value,
+        amount: form.amount.value,
+        side: form.side.value,
+        broker_type: form.broker_type.value
+    };
+    const csrftoken = getCookie('csrftoken');
+    const resultDiv = document.getElementById('order-result');
+    resultDiv.innerHTML = "<span class='text-info'>Envoi de l'ordre...</span>";
+
+    $.ajax({
+        url: "{% url 'place_order_view' %}",
+        type: "POST",
+        data: data,
+        headers: {'X-CSRFToken': csrftoken},
+        success: function(response) {
+            if (response.status === 'success') {
+                resultDiv.innerHTML = `<div class="alert alert-success">${response.message}</div>`;
+            } else {
+                resultDiv.innerHTML = `<div class="alert alert-danger">${response.message}</div>`;
+            }
+        },
+        error: function() {
+            resultDiv.innerHTML = "<div class='alert alert-danger'>Erreur lors de l'envoi de l'ordre.</div>";
+        }
+    });
+});
+</script>
+{% endblock %} 

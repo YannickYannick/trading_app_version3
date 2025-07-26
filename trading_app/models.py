@@ -2,6 +2,13 @@ from django.db import models
 from django.contrib.auth.models import User
 from decimal import Decimal
 
+# Choix pour les plateformes
+BROKER_CHOICES = [
+    ('saxo', 'Saxo Bank'),
+    ('binance', 'Binance'),
+    ('yahoo', 'Yahoo Finance'),
+]
+
 class AssetType(models.Model):
     """Types d'actifs (Action, ETF, Crypto, etc.)"""
     name = models.CharField(max_length=50, unique=True)
@@ -18,24 +25,8 @@ class Market(models.Model):
     def __str__(self):
         return self.name
 
-class AssetTradable(models.Model):
-    """Actifs tradables sur une plateforme spécifique"""
-    symbol = models.CharField(max_length=20)
-    name = models.CharField(max_length=100)
-    platform = models.CharField(max_length=20)  # SAXO, BINANCE, etc.
-    asset_type = models.ForeignKey(AssetType, on_delete=models.CASCADE)
-    market = models.ForeignKey(Market, on_delete=models.CASCADE)
-    created_at = models.DateTimeField(auto_now_add=True)
-    
-    class Meta:
-        unique_together = ['symbol', 'platform']  # Un symbole unique par plateforme
-    
-    def __str__(self):
-        return f"{self.symbol} ({self.platform})"
-
 class Asset(models.Model):
     """Actif sous-jacent (peut avoir plusieurs versions tradables)"""
-    asset_broker_ids = models.ManyToManyField(AssetTradable, related_name='underlying_assets')
     symbol = models.CharField(max_length=20, unique=True)
     name = models.CharField(max_length=100)
     sector = models.CharField(max_length=100, default='xxxx')
@@ -45,6 +36,22 @@ class Asset(models.Model):
     
     def __str__(self):
         return self.symbol
+
+class AssetTradable(models.Model):
+    """Actifs tradables sur une plateforme spécifique"""
+    asset = models.ForeignKey(Asset, on_delete=models.CASCADE, related_name='tradable_versions')
+    symbol = models.CharField(max_length=20)
+    name = models.CharField(max_length=100)
+    platform = models.CharField(max_length=20, choices=BROKER_CHOICES)
+    asset_type = models.ForeignKey(AssetType, on_delete=models.CASCADE)
+    market = models.ForeignKey(Market, on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        unique_together = ['symbol', 'platform']  # Un symbole unique par plateforme
+    
+    def __str__(self):
+        return f"{self.symbol} ({self.platform})"
 
 class BrokerCredentials(models.Model):
     """Modèle pour stocker les credentials des courtiers"""
@@ -112,7 +119,7 @@ class Strategy(models.Model):
 class Position(models.Model):
     """Modèle pour les positions"""
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-    asset_tradable = models.ForeignKey(AssetTradable, on_delete=models.CASCADE)  # Changé de Asset à AssetTradable
+    asset_tradable = models.ForeignKey(AssetTradable, on_delete=models.CASCADE)
     size = models.DecimalField(max_digits=15, decimal_places=2)
     entry_price = models.DecimalField(max_digits=15, decimal_places=5)
     current_price = models.DecimalField(max_digits=15, decimal_places=5)
@@ -132,7 +139,7 @@ class Position(models.Model):
 class Trade(models.Model):
     """Modèle pour les trades"""
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-    asset_tradable = models.ForeignKey(AssetTradable, on_delete=models.CASCADE)  # Changé de Asset à AssetTradable
+    asset_tradable = models.ForeignKey(AssetTradable, on_delete=models.CASCADE)
     size = models.DecimalField(max_digits=15, decimal_places=2)
     price = models.DecimalField(max_digits=15, decimal_places=5)
     side = models.CharField(max_length=4)  # BUY, SELL

@@ -12,6 +12,7 @@
             <button id="add-row" class="btn btn-success">Ajouter une ligne</button>
             <button id="save-all" class="btn btn-primary">Sauvegarder tout</button>
             <button id="delete-selected" class="btn btn-danger">Supprimer sélection</button>
+            <button id="update-all-assets" class="btn btn-warning">Mettre à jour tous les Assets (Yahoo)</button>
         </div>
     </div>
     
@@ -29,15 +30,19 @@ var table = new Tabulator("#asset-tradable-table", {
     paginationSize: 20,
     columns: [
         {title: "ID", field: "id", visible: false},
+        {title: "Asset ID", field: "asset_id", visible: false},
         {title: "Symbole", field: "symbol", editor: "input", validator: "required"},
         {title: "Nom", field: "name", editor: "input"},
         {title: "Plateforme", field: "platform", editor: "select", editorParams: {
-            values: ["SAXO", "BINANCE", "DEGIRO", "XTB"]
+            values: ["saxo", "binance", "yahoo"]
         }},
         {title: "Type", field: "asset_type", editor: "select", editorParams: {
             values: ["Action", "ETF", "Crypto", "Forex", "CFD"]
         }},
         {title: "Marché", field: "market", editor: "input"},
+        {title: "Secteur", field: "sector", editor: "input"},
+        {title: "Industrie", field: "industry", editor: "input"},
+        {title: "Market Cap", field: "market_cap", editor: "number"},
         {title: "Créé le", field: "created_at", editor: false},
         {
             title: "Actions",
@@ -93,21 +98,29 @@ function getCookie(name) {
     return cookieValue;
 }
 
-// Event listeners
+// Event listeners - AJOUTER CES GESTIONNAIRES D'ÉVÉNEMENTS
 document.getElementById("add-row").addEventListener("click", function() {
+    console.log("Bouton Ajouter une ligne cliqué");
     table.addRow({
         symbol: "",
         name: "",
-        platform: "SAXO",
+        platform: "saxo",
         asset_type: "Action",
         market: "",
+        sector: "xxxx",
+        industry: "xxxx",
+        market_cap: 0.0,
         created_at: new Date().toISOString().slice(0, 19).replace('T', ' ')
     });
+    console.log("Ligne ajoutée");
 });
 
 document.getElementById("save-all").addEventListener("click", function() {
+    console.log("Bouton Sauvegarder tout cliqué");
     var allData = table.getData();
     var csrftoken = getCookie('csrftoken');
+    
+    console.log("Données à sauvegarder:", allData);
     
     allData.forEach(function(rowData) {
         $.ajax({
@@ -117,6 +130,9 @@ document.getElementById("save-all").addEventListener("click", function() {
             headers: {'X-CSRFToken': csrftoken},
             success: function(response) {
                 console.log('Sauvegardé:', response);
+            },
+            error: function(xhr, status, error) {
+                console.error('Erreur sauvegarde:', error);
             }
         });
     });
@@ -125,6 +141,7 @@ document.getElementById("save-all").addEventListener("click", function() {
 });
 
 document.getElementById("delete-selected").addEventListener("click", function() {
+    console.log("Bouton Supprimer sélection cliqué");
     var selectedRows = table.getSelectedRows();
     if (selectedRows.length > 0) {
         if (confirm('Supprimer ' + selectedRows.length + ' ligne(s) ?')) {
@@ -136,5 +153,39 @@ document.getElementById("delete-selected").addEventListener("click", function() 
         alert('Aucune ligne sélectionnée');
     }
 });
+
+// Ajouter la sélection de lignes
+table.on("rowClick", function(e, row) {
+    row.toggleSelect();
+});
+
+// Ajouter le gestionnaire pour le bouton de mise à jour
+document.getElementById("update-all-assets").addEventListener("click", function() {
+    console.log("Mise à jour de tous les Assets...");
+    
+    if (confirm('Mettre à jour tous les Assets avec les données Yahoo Finance ? Cela peut prendre quelques minutes.')) {
+        var csrftoken = getCookie('csrftoken');
+        
+        $.ajax({
+            url: '{% url "update_all_assets_with_yahoo" %}',
+            type: 'POST',
+            headers: {'X-CSRFToken': csrftoken},
+            success: function(response) {
+                if (response.status === 'success') {
+                    alert(response.message);
+                    // Recharger la page pour voir les mises à jour
+                    location.reload();
+                } else {
+                    alert('Erreur: ' + response.message);
+                }
+            },
+            error: function() {
+                alert('Erreur lors de la mise à jour');
+            }
+        });
+    }
+});
+
+console.log("Script chargé - gestionnaires d'événements configurés");
 </script>
 {% endblock %} 

@@ -4,7 +4,7 @@ from .views import (
     trade_tabulator, position_tabulator, strategy_tabulator,
     broker_dashboard, broker_config, saxo_auth_callback, saxo_auth_url,
     sync_broker_data, place_broker_order, test_broker_connection,
-    asset_tradable_tabulator
+    asset_tradable_tabulator, asset_search_tabulator, update_all_assets_with_yahoo, place_order_view
 )
 
 urlpatterns = [
@@ -25,4 +25,7 @@ urlpatterns = [
     path('brokers/<int:broker_id>/sync/', sync_broker_data, name='sync_broker_data'),
     path('brokers/<int:broker_id>/order/', place_broker_order, name='place_broker_order'),
     path('asset-tradable/', asset_tradable_tabulator, name='asset_tradable_tabulator'),
+    path('asset-tradable/search/', asset_search_tabulator, name='asset_search_tabulator'),
+    path('asset-tradable/update-all/', update_all_assets_with_yahoo, name='update_all_assets_with_yahoo'),
+    path('order/place/', place_order_view, name='place_order_view'),
 ] 
