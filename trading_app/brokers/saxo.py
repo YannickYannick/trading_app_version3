@@ -21,6 +21,11 @@ class SaxoBroker(BrokerBase):
         self.redirect_uri = credentials.get('redirect_uri', 'http://localhost:8080/callback')
         self.base_url = "https://gateway.saxobank.com/sim/openapi"  # ou "https://gateway.saxobank.com/openapi" pour prod
         self.auth_url = "https://sim.logonvalidation.net"  # ou "https://logonvalidation.net" pour prod
+        
+        # Récupérer les tokens stockés s'ils existent
+        self.access_token = credentials.get('access_token')
+        self.refresh_token = credentials.get('refresh_token')
+        self.token_expires_at = credentials.get('token_expires_at')
     
     def get_auth_url(self, state: str = "xyz123") -> str:
         """Générer l'URL d'autorisation OAuth2"""
@@ -33,8 +38,29 @@ class SaxoBroker(BrokerBase):
         }
         return f"{self.auth_url}/authorize?{urlencode(params)}"
     
-    def authenticate(self, authorization_code: str) -> bool:
-        """Authentification avec le code d'autorisation"""
+    def authenticate(self) -> bool:
+        """Authentification - vérifier si on a un token valide ou essayer de le rafraîchir"""
+        # Si on a déjà un token valide, on est authentifié
+        if self.is_authenticated() and self.token_expires_at and datetime.now() < self.token_expires_at:
+            return True
+        
+        # Gestion spéciale pour les tokens 24h
+        # Si access_token et refresh_token sont identiques, c'est probablement un token 24h
+        if self.access_token and self.refresh_token and self.access_token == self.refresh_token:
+            print("🔑 Token 24h détecté - pas de refresh automatique")
+            # Pour un token 24h, on ne tente jamais le refresh
+            # On vérifie juste si le token existe
+            return bool(self.access_token)
+        
+        # Si on a un vrai refresh token (différent de l'access token), essayer de le rafraîchir
+        if self.refresh_token and self.refresh_token != self.access_token:
+            return self.refresh_auth_token()
+        
+        # Sinon, on n'est pas authentifié
+        return False
+    
+    def authenticate_with_code(self, authorization_code: str) -> bool:
+        """Authentification avec le code d'autorisation OAuth2"""
         token_url = f"{self.auth_url}/token"
         data = {
             "grant_type": "authorization_code",
@@ -113,18 +139,29 @@ class SaxoBroker(BrokerBase):
             return []
             
         all_positions = []
+
         for account in accounts:
             account_key = account.get("AccountKey")
             if account_key:
                 url = f"{self.base_url}/port/v1/accounts/{account_key}/positions"
                 headers = {"Authorization": f"Bearer {self.access_token}"}
-                
                 try:
-                    response = requests.get(url, headers=headers)
+                    positions_url = "https://gateway.saxobank.com/sim/openapi/port/v1/positions/me"
+                    headers = {"Authorization": f"Bearer {self.access_token}","Content-Type": "application/json"}
+                    params = {"$top": 100}
+
+                    response = requests.get(positions_url, headers=headers, params=params)
                     response.raise_for_status()
                     data = response.json()
                     positions = data.get("Data", [])
                     all_positions.extend(positions)
+                    print(" Yannick !!!")
+                #try:
+                    #response = requests.get(url, headers=headers)
+                    #response.raise_for_status()
+                    #data = response.json()
+                    #positions = data.get("Data", [])
+                    #all_positions.extend(positions)
                 except Exception as e:
                     print(f"Erreur récupération positions Saxo: {e}")
         
@@ -143,9 +180,14 @@ class SaxoBroker(BrokerBase):
         for account in accounts:
             account_key = account.get("AccountKey")
             if account_key:
-                url = f"{self.base_url}/port/v1/accounts/{account_key}/trades"
+                url = f"{self.base_url}/port/v1/trades/me"
                 headers = {"Authorization": f"Bearer {self.access_token}"}
                 params = {"$top": limit}
+                print("vérification")
+                print(url)
+                print(headers)
+                print(params)
+
                 
                 try:
                     response = requests.get(url, headers=headers, params=params)
@@ -153,6 +195,7 @@ class SaxoBroker(BrokerBase):
                     data = response.json()
                     trades = data.get("Data", [])
                     all_trades.extend(trades)
+                    print(" Yannick !!! ooo 2")
                 except Exception as e:
                     print(f"Erreur récupération trades Saxo: {e}")
         
@@ -286,3 +329,16 @@ class SaxoBroker(BrokerBase):
             if asset.get("Symbol") == symbol:
                 return asset.get("Identifier")
         return None 
+
+    def set_24h_token(self, token: str):
+        """Configurer un token 24h de Saxo"""
+        self.access_token = token
+        self.refresh_token = token  # Même token pour détecter que c'est un 24h token
+        # Expiration dans 23h50 pour avoir une marge de sécurité
+        self.token_expires_at = datetime.now() + timedelta(hours=23, minutes=50)
+        print(f"🔑 Token 24h configuré - expire le {self.token_expires_at}")
+    
+    def is_24h_token(self) -> bool:
+        """Vérifier si on utilise un token 24h"""
+        return (self.access_token and self.refresh_token and 
+                self.access_token == self.refresh_token) 

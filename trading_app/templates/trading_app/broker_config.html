@@ -59,6 +59,49 @@
                 <small class="form-text text-muted">URL de callback pour l'authentification OAuth2</small>
             </div>
             
+            <!-- Champs optionnels pour tokens manuels (pour tests) -->
+            <div class="card mt-3">
+                <div class="card-header">
+                    <h6 class="mb-0">
+                        <i class="fas fa-key"></i> Tokens manuels (optionnel - pour tests)
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i>
+                        <strong>Tokens 24h Saxo :</strong> Si vous utilisez un token 24h de Saxo, 
+                        mettez le même token dans les deux champs ci-dessous. Le système détectera 
+                        automatiquement qu'il s'agit d'un token 24h et évitera les tentatives de refresh.
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="saxo_access_token">Access Token</label>
+                        <input type="text" name="saxo_access_token" id="saxo_access_token" class="form-control"
+                               value="{% if broker %}{{ broker.saxo_access_token }}{% endif %}" 
+                               placeholder="Access token ou token 24h">
+                        <small class="form-text text-muted">
+                            Token d'accès normal ou token 24h de Saxo
+                        </small>
+                    </div>
+                    <div class="form-group">
+                        <label for="saxo_refresh_token">Refresh Token</label>
+                        <input type="text" name="saxo_refresh_token" id="saxo_refresh_token" class="form-control"
+                               value="{% if broker %}{{ broker.saxo_refresh_token }}{% endif %}" 
+                               placeholder="Refresh token ou même token 24h">
+                        <small class="form-text text-muted">
+                            Token de rafraîchissement normal OU même token que l'access token pour un token 24h
+                        </small>
+                    </div>
+                    
+                    <div class="form-check">
+                        <input type="checkbox" id="use_24h_token" class="form-check-input">
+                        <label for="use_24h_token" class="form-check-label">
+                            J'utilise un token 24h (copie automatique)
+                        </label>
+                    </div>
+                </div>
+            </div>
+            
             {% if broker and broker.saxo_access_token %}
             <div class="alert alert-success">
                 <i class="fas fa-check-circle"></i>
@@ -124,8 +167,53 @@ document.getElementById('broker_type').addEventListener('change', function() {
     }
 });
 
-// Afficher la configuration au chargement si un courtier est sélectionné
+// Gestion des tokens 24h
 document.addEventListener('DOMContentLoaded', function() {
+    const accessTokenField = document.getElementById('saxo_access_token');
+    const refreshTokenField = document.getElementById('saxo_refresh_token');
+    const use24hTokenCheckbox = document.getElementById('use_24h_token');
+    
+    if (accessTokenField && refreshTokenField && use24hTokenCheckbox) {
+        // Copie automatique pour token 24h
+        use24hTokenCheckbox.addEventListener('change', function() {
+            if (this.checked) {
+                // Copier l'access token dans le refresh token
+                refreshTokenField.value = accessTokenField.value;
+                refreshTokenField.readOnly = true;
+                refreshTokenField.style.backgroundColor = '#f8f9fa';
+            } else {
+                // Réactiver le champ refresh token
+                refreshTokenField.readOnly = false;
+                refreshTokenField.style.backgroundColor = '';
+            }
+        });
+        
+        // Synchroniser quand l'access token change
+        accessTokenField.addEventListener('input', function() {
+            if (use24hTokenCheckbox.checked) {
+                refreshTokenField.value = this.value;
+            }
+        });
+        
+        // Détecter automatiquement si c'est un token 24h
+        function detect24hToken() {
+            if (accessTokenField.value && refreshTokenField.value && 
+                accessTokenField.value === refreshTokenField.value) {
+                use24hTokenCheckbox.checked = true;
+                refreshTokenField.readOnly = true;
+                refreshTokenField.style.backgroundColor = '#f8f9fa';
+            }
+        }
+        
+        // Détecter au chargement
+        detect24hToken();
+        
+        // Détecter quand les champs changent
+        accessTokenField.addEventListener('change', detect24hToken);
+        refreshTokenField.addEventListener('change', detect24hToken);
+    }
+    
+    // Afficher la configuration au chargement si un courtier est sélectionné
     const brokerType = document.getElementById('broker_type').value;
     if (brokerType) {
         document.getElementById('broker_type').dispatchEvent(new Event('change'));

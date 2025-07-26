@@ -7,6 +7,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth.decorators import login_required
 from .services import BrokerService, SaxoAuthService
 from .brokers.factory import BrokerFactory
+from .models import AssetType, Market, AssetTradable
 
 # Create your views here.
 
@@ -105,6 +106,13 @@ def broker_config(request, broker_id=None):
                     broker.saxo_client_id = request.POST.get('saxo_client_id')
                     broker.saxo_client_secret = request.POST.get('saxo_client_secret')
                     broker.saxo_redirect_uri = request.POST.get('saxo_redirect_uri')
+                    # Gestion des tokens manuels (optionnels)
+                    access_token = request.POST.get('saxo_access_token')
+                    refresh_token = request.POST.get('saxo_refresh_token')
+                    if access_token:
+                        broker.saxo_access_token = access_token
+                    if refresh_token:
+                        broker.saxo_refresh_token = refresh_token
                 elif broker_type == 'binance':
                     broker.binance_api_key = request.POST.get('binance_api_key')
                     broker.binance_api_secret = request.POST.get('binance_api_secret')
@@ -120,6 +128,8 @@ def broker_config(request, broker_id=None):
                     saxo_client_id=request.POST.get('saxo_client_id'),
                     saxo_client_secret=request.POST.get('saxo_client_secret'),
                     saxo_redirect_uri=request.POST.get('saxo_redirect_uri'),
+                    saxo_access_token=request.POST.get('saxo_access_token'),
+                    saxo_refresh_token=request.POST.get('saxo_refresh_token'),
                     binance_api_key=request.POST.get('binance_api_key'),
                     binance_api_secret=request.POST.get('binance_api_secret'),
                     binance_testnet=request.POST.get('binance_testnet') == 'on',
@@ -150,25 +160,50 @@ def saxo_auth_callback(request):
         if not broker_creds:
             return JsonResponse({"error": "Aucune configuration Saxo trouvée"}, status=400)
         
-        # Échanger le code contre des tokens
-        tokens = SaxoAuthService.exchange_code_for_tokens(
-            code,
-            broker_creds.saxo_client_id,
-            broker_creds.saxo_client_secret,
-            broker_creds.saxo_redirect_uri
-        )
+        # Utiliser le BrokerService pour l'authentification
+        broker_service = BrokerService(request.user)
+        success = broker_service.authenticate_saxo_with_code(broker_creds, code)
         
-        # Sauvegarder les tokens
-        from datetime import datetime, timedelta
-        broker_creds.saxo_access_token = tokens.get('access_token')
-        broker_creds.saxo_refresh_token = tokens.get('refresh_token')
-        broker_creds.saxo_token_expires_at = datetime.now() + timedelta(seconds=tokens.get('expires_in', 0))
-        broker_creds.save()
-        
-        return JsonResponse({"success": True, "message": "Authentification Saxo réussie"})
+        if success:
+            # Récupérer l'instance du broker pour sauvegarder les tokens
+            broker = broker_service.get_broker_instance(broker_creds)
+            
+            # Sauvegarder les tokens dans les credentials
+            broker_creds.saxo_access_token = broker.access_token
+            broker_creds.saxo_refresh_token = broker.refresh_token
+            broker_creds.saxo_token_expires_at = broker.token_expires_at
+            broker_creds.save()
+            
+            return JsonResponse({"success": True, "message": "Authentification Saxo réussie"})
+        else:
+            return JsonResponse({"error": "Échec de l'authentification Saxo"}, status=400)
         
     except Exception as e:
         return JsonResponse({"error": f"Erreur d'authentification: {str(e)}"}, status=400)
+
+@login_required
+def saxo_auth_url(request):
+    """Obtenir l'URL d'authentification Saxo"""
+    try:
+        broker_creds = BrokerCredentials.objects.filter(
+            user=request.user, 
+            broker_type='saxo',
+            is_active=True
+        ).first()
+        
+        if not broker_creds:
+            return JsonResponse({"error": "Aucune configuration Saxo trouvée"}, status=400)
+        
+        broker_service = BrokerService(request.user)
+        auth_url = broker_service.get_saxo_auth_url(broker_creds)
+        
+        return JsonResponse({
+            "success": True,
+            "auth_url": auth_url
+        })
+        
+    except Exception as e:
+        return JsonResponse({"error": f"Erreur: {str(e)}"}, status=400)
 
 @login_required
 @csrf_exempt
@@ -266,4 +301,56 @@ def test_broker_connection(request, broker_id):
         return JsonResponse({'success': False, 'error': 'Broker non trouvé'})
     except Exception as e:
         return JsonResponse({'success': False, 'error': str(e)})
+
+def asset_tradable_tabulator(request):
+    """Vue pour gérer les AssetTradable avec Tabulator"""
+    if request.method == 'POST':
+        try:
+            data = request.POST.dict()
+            
+            # Récupérer ou créer AssetType et Market
+            asset_type, _ = AssetType.objects.get_or_create(name=data.get('asset_type', 'Unknown'))
+            market, _ = Market.objects.get_or_create(name=data.get('market', 'Unknown'))
+            
+            # Créer ou mettre à jour AssetTradable
+            asset_tradable, created = AssetTradable.objects.get_or_create(
+                symbol=data['symbol'],
+                platform=data['platform'],
+                defaults={
+                    'name': data.get('name', ''),
+                    'asset_type': asset_type,
+                    'market': market,
+                }
+            )
+            
+            if not created:
+                # Mise à jour si l'objet existe déjà
+                asset_tradable.name = data.get('name', '')
+                asset_tradable.asset_type = asset_type
+                asset_tradable.market = market
+                asset_tradable.save()
+            
+            return JsonResponse({'status': 'success', 'message': 'AssetTradable sauvegardé'})
+            
+        except Exception as e:
+            return JsonResponse({'status': 'error', 'message': f'Erreur: {str(e)}'})
+    
+    # Récupérer les données pour Tabulator
+    asset_tradables = AssetTradable.objects.select_related('asset_type', 'market').all()
+    data_asset_tradables = []
+    
+    for at in asset_tradables:
+        data_asset_tradables.append({
+            'id': at.id,
+            'symbol': at.symbol,
+            'name': at.name,
+            'platform': at.platform,
+            'asset_type': at.asset_type.name,
+            'market': at.market.name,
+            'created_at': at.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+        })
+    
+    return render(request, 'trading_app/asset_tradable_tabulator.html', {
+        'data_asset_tradables': data_asset_tradables
+    })
 

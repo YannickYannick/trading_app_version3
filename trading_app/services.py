@@ -36,6 +36,12 @@ class BrokerService:
         broker = self.get_broker_instance(broker_credentials)
         print(f"Instance broker créée: {type(broker)}")
         
+        # Gestion spéciale pour Saxo (OAuth2)
+        if broker_credentials.broker_type == 'saxo':
+            if not broker.is_authenticated():
+                print("Saxo non authentifié - nécessite un code d'autorisation OAuth2")
+                raise Exception("Saxo nécessite une authentification OAuth2. Veuillez d'abord vous authentifier via l'interface d'authentification.")
+        
         if not broker.authenticate():
             print("Échec de l'authentification")
             return []
@@ -193,6 +199,22 @@ class BrokerService:
             return None
         
         return broker.get_asset_price(symbol)
+
+    def authenticate_saxo_with_code(self, broker_credentials: BrokerCredentials, authorization_code: str) -> bool:
+        """Authentifier Saxo avec un code d'autorisation OAuth2"""
+        if broker_credentials.broker_type != 'saxo':
+            raise ValueError("Cette méthode est uniquement pour Saxo")
+        
+        broker = self.get_broker_instance(broker_credentials)
+        return broker.authenticate_with_code(authorization_code)
+    
+    def get_saxo_auth_url(self, broker_credentials: BrokerCredentials, state: str = "xyz123") -> str:
+        """Obtenir l'URL d'authentification Saxo"""
+        if broker_credentials.broker_type != 'saxo':
+            raise ValueError("Cette méthode est uniquement pour Saxo")
+        
+        broker = self.get_broker_instance(broker_credentials)
+        return broker.get_auth_url(state)
 
 
 class SaxoAuthService:
