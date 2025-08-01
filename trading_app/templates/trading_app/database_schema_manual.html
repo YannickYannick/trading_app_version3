@@ -1,0 +1,330 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Schéma Manuel de la Base de Données - Trading App{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-success text-white">
+                    <h2><i class="fas fa-draw-polygon"></i> Schéma Manuel de la Base de Données</h2>
+                    <p class="mb-0">Représentation manuelle de l'architecture de données</p>
+                </div>
+                <div class="card-body">
+                    
+                    <!-- Schéma principal -->
+                    <div class="row">
+                        <div class="col-12">
+                            <div class="schema-container" style="position: relative; min-height: 800px; background: #f8f9fa; border-radius: 8px; padding: 20px;">
+                                
+                                <!-- User (Centre) -->
+                                <div class="table-box user-box" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #e3f2fd; border: 3px solid #2196f3; border-radius: 8px; padding: 15px; min-width: 200px; text-align: center; z-index: 10;">
+                                    <h5 class="mb-2"><i class="fas fa-user"></i> User</h5>
+                                    <small class="text-muted">Django Auth</small>
+                                    <div class="mt-2">
+                                        <div class="field-item">id (PK)</div>
+                                        <div class="field-item">username</div>
+                                        <div class="field-item">email</div>
+                                        <div class="field-item">password</div>
+                                        <div class="field-item">is_active</div>
+                                    </div>
+                                </div>
+
+                                <!-- AssetType (Haut gauche) -->
+                                <div class="table-box asset-type-box" style="position: absolute; top: 10%; left: 10%; background: #f3e5f5; border: 3px solid #9c27b0; border-radius: 8px; padding: 15px; min-width: 180px; text-align: center;">
+                                    <h5 class="mb-2"><i class="fas fa-tags"></i> AssetType</h5>
+                                    <small class="text-muted">Types d'actifs</small>
+                                    <div class="mt-2">
+                                        <div class="field-item">id (PK)</div>
+                                        <div class="field-item">name (UNIQUE)</div>
+                                        <div class="field-item">platform_id</div>
+                                    </div>
+                                </div>
+
+                                <!-- Market (Haut droite) -->
+                                <div class="table-box market-box" style="position: absolute; top: 10%; right: 10%; background: #e8f5e8; border: 3px solid #4caf50; border-radius: 8px; padding: 15px; min-width: 180px; text-align: center;">
+                                    <h5 class="mb-2"><i class="fas fa-globe"></i> Market</h5>
+                                    <small class="text-muted">Marchés</small>
+                                    <div class="mt-2">
+                                        <div class="field-item">id (PK)</div>
+                                        <div class="field-item">name (UNIQUE)</div>
+                                        <div class="field-item">platform_id</div>
+                                    </div>
+                                </div>
+
+                                <!-- Asset (Bas gauche) -->
+                                <div class="table-box asset-box" style="position: absolute; bottom: 10%; left: 10%; background: #fff3e0; border: 3px solid #ff9800; border-radius: 8px; padding: 15px; min-width: 200px; text-align: center;">
+                                    <h5 class="mb-2"><i class="fas fa-coins"></i> Asset</h5>
+                                    <small class="text-muted">Actif sous-jacent</small>
+                                    <div class="mt-2">
+                                        <div class="field-item">id (PK)</div>
+                                        <div class="field-item">symbol (UNIQUE)</div>
+                                        <div class="field-item">name</div>
+                                        <div class="field-item">sector</div>
+                                        <div class="field-item">industry</div>
+                                        <div class="field-item">market_cap</div>
+                                        <div class="field-item">price_history</div>
+                                    </div>
+                                </div>
+
+                                <!-- AssetTradable (Centre haut) -->
+                                <div class="table-box asset-tradable-box" style="position: absolute; top: 30%; left: 50%; transform: translateX(-50%); background: #fce4ec; border: 3px solid #e91e63; border-radius: 8px; padding: 15px; min-width: 220px; text-align: center;">
+                                    <h5 class="mb-2"><i class="fas fa-exchange-alt"></i> AssetTradable</h5>
+                                    <small class="text-muted">Actifs tradables</small>
+                                    <div class="mt-2">
+                                        <div class="field-item">id (PK)</div>
+                                        <div class="field-item">asset_id (FK → Asset)</div>
+                                        <div class="field-item">symbol</div>
+                                        <div class="field-item">name</div>
+                                        <div class="field-item">platform</div>
+                                        <div class="field-item">asset_type_id (FK → AssetType)</div>
+                                        <div class="field-item">market_id (FK → Market)</div>
+                                        <div class="field-item">created_at</div>
+                                    </div>
+                                </div>
+
+                                <!-- BrokerCredentials (Centre droite) -->
+                                <div class="table-box broker-box" style="position: absolute; top: 50%; right: 10%; background: #e0f2f1; border: 3px solid #009688; border-radius: 8px; padding: 15px; min-width: 200px; text-align: center;">
+                                    <h5 class="mb-2"><i class="fas fa-university"></i> BrokerCredentials</h5>
+                                    <small class="text-muted">Credentials courtiers</small>
+                                    <div class="mt-2">
+                                        <div class="field-item">id (PK)</div>
+                                        <div class="field-item">user_id (FK → User)</div>
+                                        <div class="field-item">broker_type</div>
+                                        <div class="field-item">name</div>
+                                        <div class="field-item">environment</div>
+                                        <div class="field-item">saxo_client_id</div>
+                                        <div class="field-item">saxo_client_secret</div>
+                                        <div class="field-item">binance_api_key</div>
+                                        <div class="field-item">binance_api_secret</div>
+                                        <div class="field-item">is_active</div>
+                                    </div>
+                                </div>
+
+                                <!-- Strategy (Bas centre) -->
+                                <div class="table-box strategy-box" style="position: absolute; bottom: 30%; left: 50%; transform: translateX(-50%); background: #f1f8e9; border: 3px solid #8bc34a; border-radius: 8px; padding: 15px; min-width: 180px; text-align: center;">
+                                    <h5 class="mb-2"><i class="fas fa-chess"></i> Strategy</h5>
+                                    <small class="text-muted">Stratégies trading</small>
+                                    <div class="mt-2">
+                                        <div class="field-item">id (PK)</div>
+                                        <div class="field-item">name (UNIQUE)</div>
+                                        <div class="field-item">description</div>
+                                        <div class="field-item">created_by_id (FK → User)</div>
+                                        <div class="field-item">created_at</div>
+                                    </div>
+                                </div>
+
+                                <!-- Position (Bas droite) -->
+                                <div class="table-box position-box" style="position: absolute; bottom: 10%; right: 10%; background: #fff8e1; border: 3px solid #ffc107; border-radius: 8px; padding: 15px; min-width: 200px; text-align: center;">
+                                    <h5 class="mb-2"><i class="fas fa-chart-bar"></i> Position</h5>
+                                    <small class="text-muted">Positions trading</small>
+                                    <div class="mt-2">
+                                        <div class="field-item">id (PK)</div>
+                                        <div class="field-item">user_id (FK → User)</div>
+                                        <div class="field-item">asset_tradable_id (FK → AssetTradable)</div>
+                                        <div class="field-item">size</div>
+                                        <div class="field-item">entry_price</div>
+                                        <div class="field-item">current_price</div>
+                                        <div class="field-item">side</div>
+                                        <div class="field-item">status</div>
+                                        <div class="field-item">pnl</div>
+                                        <div class="field-item">created_at</div>
+                                        <div class="field-item">updated_at</div>
+                                    </div>
+                                </div>
+
+                                <!-- Trade (Centre bas) -->
+                                <div class="table-box trade-box" style="position: absolute; bottom: 10%; left: 50%; transform: translateX(-50%); background: #fafafa; border: 3px solid #9e9e9e; border-radius: 8px; padding: 15px; min-width: 200px; text-align: center;">
+                                    <h5 class="mb-2"><i class="fas fa-exchange-alt"></i> Trade</h5>
+                                    <small class="text-muted">Trades exécutés</small>
+                                    <div class="mt-2">
+                                        <div class="field-item">id (PK)</div>
+                                        <div class="field-item">user_id (FK → User)</div>
+                                        <div class="field-item">asset_tradable_id (FK → AssetTradable)</div>
+                                        <div class="field-item">size</div>
+                                        <div class="field-item">price</div>
+                                        <div class="field-item">side</div>
+                                        <div class="field-item">timestamp</div>
+                                        <div class="field-item">platform</div>
+                                    </div>
+                                </div>
+
+                                <!-- Légende -->
+                                <div class="legend" style="position: absolute; top: 10px; right: 10px; background: white; border: 1px solid #dee2e6; border-radius: 4px; padding: 10px; font-size: 0.8em; z-index: 20;">
+                                    <strong>Légende:</strong><br>
+                                    <div class="legend-item">
+                                        <div class="legend-color" style="background-color: #fff3cd; width: 12px; height: 12px; display: inline-block; margin-right: 5px; border-radius: 2px;"></div>
+                                        Clé primaire (PK)
+                                    </div>
+                                    <div class="legend-item">
+                                        <div class="legend-color" style="background-color: #d1ecf1; width: 12px; height: 12px; display: inline-block; margin-right: 5px; border-radius: 2px;"></div>
+                                        Clé étrangère (FK)
+                                    </div>
+                                    <div class="legend-item">
+                                        <div class="legend-color" style="background-color: #d4edda; width: 12px; height: 12px; display: inline-block; margin-right: 5px; border-radius: 2px;"></div>
+                                        Unique
+                                    </div>
+                                </div>
+
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Relations -->
+                    <div class="row mt-4">
+                        <div class="col-12">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5><i class="fas fa-project-diagram"></i> Relations entre les Tables</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <h6>Relations One-to-Many :</h6>
+                                            <ul class="list-group">
+                                                <li class="list-group-item">
+                                                    <strong>User</strong> → <strong>BrokerCredentials</strong> (1 utilisateur peut avoir plusieurs credentials)
+                                                </li>
+                                                <li class="list-group-item">
+                                                    <strong>User</strong> → <strong>Strategy</strong> (1 utilisateur peut créer plusieurs stratégies)
+                                                </li>
+                                                <li class="list-group-item">
+                                                    <strong>User</strong> → <strong>Position</strong> (1 utilisateur peut avoir plusieurs positions)
+                                                </li>
+                                                <li class="list-group-item">
+                                                    <strong>User</strong> → <strong>Trade</strong> (1 utilisateur peut avoir plusieurs trades)
+                                                </li>
+                                                <li class="list-group-item">
+                                                    <strong>Asset</strong> → <strong>AssetTradable</strong> (1 actif peut avoir plusieurs versions tradables)
+                                                </li>
+                                                <li class="list-group-item">
+                                                    <strong>AssetType</strong> → <strong>AssetTradable</strong> (1 type peut être utilisé par plusieurs actifs tradables)
+                                                </li>
+                                                <li class="list-group-item">
+                                                    <strong>Market</strong> → <strong>AssetTradable</strong> (1 marché peut contenir plusieurs actifs tradables)
+                                                </li>
+                                                <li class="list-group-item">
+                                                    <strong>AssetTradable</strong> → <strong>Position</strong> (1 actif tradable peut être dans plusieurs positions)
+                                                </li>
+                                                <li class="list-group-item">
+                                                    <strong>AssetTradable</strong> → <strong>Trade</strong> (1 actif tradable peut avoir plusieurs trades)
+                                                </li>
+                                            </ul>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <h6>Contraintes importantes :</h6>
+                                            <ul class="list-group">
+                                                <li class="list-group-item">
+                                                    <strong>AssetTradable</strong> : <code>unique_together = ['symbol', 'platform']</code>
+                                                </li>
+                                                <li class="list-group-item">
+                                                    <strong>BrokerCredentials</strong> : <code>unique_together = ['user', 'broker_type', 'name']</code>
+                                                </li>
+                                                <li class="list-group-item">
+                                                    <strong>Asset</strong> : <code>symbol UNIQUE</code>
+                                                </li>
+                                                <li class="list-group-item">
+                                                    <strong>AssetType</strong> : <code>name UNIQUE</code>
+                                                </li>
+                                                <li class="list-group-item">
+                                                    <strong>Market</strong> : <code>name UNIQUE</code>
+                                                </li>
+                                                <li class="list-group-item">
+                                                    <strong>Strategy</strong> : <code>name UNIQUE</code>
+                                                </li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Statistiques -->
+                    <div class="row mt-4">
+                        <div class="col-md-3">
+                            <div class="card bg-primary text-white">
+                                <div class="card-body text-center">
+                                    <h5 class="card-title">9</h5>
+                                    <p class="card-text">Tables</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card bg-success text-white">
+                                <div class="card-body text-center">
+                                    <h5 class="card-title">65</h5>
+                                    <p class="card-text">Champs</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card bg-info text-white">
+                                <div class="card-body text-center">
+                                    <h5 class="card-title">9</h5>
+                                    <p class="card-text">Relations</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card bg-warning text-white">
+                                <div class="card-body text-center">
+                                    <h5 class="card-title">9</h5>
+                                    <p class="card-text">Clés étrangères</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.table-box {
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    transition: all 0.3s ease;
+}
+
+.table-box:hover {
+    transform: scale(1.05);
+    box-shadow: 0 6px 12px rgba(0,0,0,0.15);
+    z-index: 15 !important;
+}
+
+.field-item {
+    font-size: 0.8em;
+    padding: 1px 0;
+    border-bottom: 1px solid rgba(0,0,0,0.1);
+}
+
+.field-item:last-child {
+    border-bottom: none;
+}
+
+.schema-container {
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+}
+
+.legend-item {
+    margin: 2px 0;
+}
+
+@media (max-width: 768px) {
+    .table-box {
+        position: relative !important;
+        margin: 10px 0;
+        transform: none !important;
+    }
+    
+    .schema-container {
+        min-height: auto;
+        padding: 10px;
+    }
+}
+</style>
+{% endblock %} 

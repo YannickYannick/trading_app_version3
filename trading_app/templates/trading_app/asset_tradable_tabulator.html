@@ -7,6 +7,53 @@
 <div class="container mt-4">
     <h1>Gestion des Actifs Tradables</h1>
     
+    <!-- Section Recherche et Autocomplétion -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5><i class="fas fa-search"></i> Recherche d'Actifs</h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label for="asset-search">Rechercher un actif dans le catalogue :</label>
+                        <div class="input-group">
+                            <input type="text" id="asset-search" class="form-control" placeholder="Tapez un symbole ou un nom d'actif...">
+                            <button class="btn btn-outline-secondary" type="button" onclick="clearSearch()">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                        <div id="search-results" class="mt-2"></div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label>Filtres :</label>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <select id="platform-filter" class="form-control">
+                                    <option value="">Toutes les plateformes</option>
+                                    <option value="saxo">Saxo Bank</option>
+                                    <option value="binance">Binance</option>
+                                    <option value="yahoo">Yahoo Finance</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <select id="asset-type-filter" class="form-control">
+                                    <option value="">Tous les types</option>
+                                    <option value="Stock">Action</option>
+                                    <option value="Crypto">Crypto</option>
+                                    <option value="ETF">ETF</option>
+                                    <option value="Bond">Obligation</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="row mb-3">
         <div class="col">
             <button id="add-row" class="btn btn-success">Ajouter une ligne</button>
@@ -187,5 +234,139 @@ document.getElementById("update-all-assets").addEventListener("click", function(
 });
 
 console.log("Script chargé - gestionnaires d'événements configurés");
+
+// Fonctions d'autocomplétion
+let searchTimeout;
+
+document.getElementById('asset-search').addEventListener('input', function() {
+    const query = this.value.trim();
+    const platform = document.getElementById('platform-filter').value;
+    
+    // Annuler la recherche précédente
+    clearTimeout(searchTimeout);
+    
+    if (query.length < 2) {
+        document.getElementById('search-results').innerHTML = '';
+        return;
+    }
+    
+    // Délai pour éviter trop de requêtes
+    searchTimeout = setTimeout(() => {
+        searchAssets(query, platform);
+    }, 300);
+});
+
+document.getElementById('platform-filter').addEventListener('change', function() {
+    const query = document.getElementById('asset-search').value.trim();
+    if (query.length >= 2) {
+        searchAssets(query, this.value);
+    }
+});
+
+document.getElementById('asset-type-filter').addEventListener('change', function() {
+    const query = document.getElementById('asset-search').value.trim();
+    if (query.length >= 2) {
+        searchAssets(query, document.getElementById('platform-filter').value);
+    }
+});
+
+function searchAssets(query, platform) {
+    console.log(`🔍 Recherche: "${query}" sur plateforme: "${platform}"`);
+    
+    const url = new URL('/assets/search/', window.location.origin);
+    url.searchParams.append('q', query);
+    if (platform) {
+        url.searchParams.append('platform', platform);
+    }
+    
+    console.log(`📡 URL de recherche: ${url.toString()}`);
+    
+    fetch(url)
+        .then(response => {
+            console.log(`📥 Réponse reçue: ${response.status}`);
+            return response.json();
+        })
+        .then(data => {
+            console.log(`📊 Données reçues:`, data);
+            displaySearchResults(data.results);
+        })
+        .catch(error => {
+            console.error('❌ Erreur lors de la recherche:', error);
+            document.getElementById('search-results').innerHTML = 
+                '<div class="alert alert-danger">Erreur lors de la recherche</div>';
+        });
+}
+
+function displaySearchResults(results) {
+    const resultsDiv = document.getElementById('search-results');
+    
+    if (results.length === 0) {
+        resultsDiv.innerHTML = '<div class="text-muted">Aucun résultat trouvé</div>';
+        return;
+    }
+    
+    let html = '<div class="list-group">';
+    results.forEach(asset => {
+        html += `
+            <div class="list-group-item list-group-item-action" onclick="selectAsset('${asset.symbol}', '${asset.name}', '${asset.platform}', '${asset.asset_type}', '${asset.market}')">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong>${asset.symbol}</strong> - ${asset.name}
+                    </div>
+                    <div>
+                        <span class="badge bg-primary">${asset.platform.toUpperCase()}</span>
+                        <span class="badge bg-secondary">${asset.asset_type}</span>
+                    </div>
+                </div>
+                <small class="text-muted">Marché: ${asset.market}</small>
+            </div>
+        `;
+    });
+    html += '</div>';
+    
+    resultsDiv.innerHTML = html;
+}
+
+function selectAsset(symbol, name, platform, assetType, market) {
+    console.log(`✅ Actif sélectionné: ${symbol} - ${name}`);
+    
+    // Ajouter une nouvelle ligne avec les données de l'actif sélectionné
+    table.addRow({
+        symbol: symbol,
+        name: name,
+        platform: platform,
+        asset_type: assetType,
+        market: market,
+        sector: "xxxx",
+        industry: "xxxx",
+        market_cap: 0.0,
+        created_at: new Date().toISOString().slice(0, 19).replace('T', ' ')
+    });
+    
+    // Vider la recherche
+    document.getElementById('asset-search').value = '';
+    document.getElementById('search-results').innerHTML = '';
+    
+    // Afficher un message de confirmation
+    const alertDiv = document.createElement('div');
+    alertDiv.className = 'alert alert-success alert-dismissible fade show';
+    alertDiv.innerHTML = `
+        <i class="fas fa-check"></i> Actif "${symbol}" ajouté avec succès !
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    document.querySelector('.container').insertBefore(alertDiv, document.querySelector('.card'));
+    
+    // Supprimer l'alerte après 3 secondes
+    setTimeout(() => {
+        if (alertDiv.parentNode) {
+            alertDiv.remove();
+        }
+    }, 3000);
+}
+
+function clearSearch() {
+    document.getElementById('asset-search').value = '';
+    document.getElementById('search-results').innerHTML = '';
+}
 </script>
 {% endblock %} 

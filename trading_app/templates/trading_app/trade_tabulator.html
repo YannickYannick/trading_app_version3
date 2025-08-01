@@ -21,13 +21,36 @@
             <i class="fas fa-database"></i> Binance Tout
         </button>
     </div>
+    
+    <!-- Boutons pour synchronisation Saxo -->
+    {% if saxo_brokers %}
+    <div class="btn-group ms-2" role="group">
+        <span class="btn btn-outline-info disabled">
+            <i class="fas fa-university"></i> Saxo Trades
+        </span>
+        {% for broker in saxo_brokers %}
+        <button type="button" class="btn btn-outline-info saxo-sync-btn" data-broker-id="{{ broker.id }}" data-broker-name="{{ broker.name }}">
+            <i class="fas fa-sync"></i> {{ broker.name }}
+        </button>
+        {% endfor %}
+    </div>
+    {% endif %}
+    
+    <!-- Boutons pour gestion globale des trades -->
+    <div class="btn-group ms-2" role="group">
+        <span class="btn btn-outline-warning disabled">
+            <i class="fas fa-cogs"></i> Gestion Globale
+        </span>
+        <button type="button" class="btn btn-outline-warning" id="updateAllTrades">
+            <i class="fas fa-sync-alt"></i> Mettre à jour tous les trades
+        </button>
+        <button type="button" class="btn btn-outline-danger" id="deleteAllTrades">
+            <i class="fas fa-trash"></i> Supprimer tous les trades
+        </button>
+    </div>
 </div>
 
 <div id="trade-table"></div>
-<button id="add-row">Ajouter une ligne</button>
-<button id="delete-row">Supprimer la dernière ligne</button>
-<button id="update-row">Modifier la première ligne</button>
-<button id="save-all">Save All</button>
 
 <!-- Modal pour sélectionner les colonnes -->
 <div class="modal fade" id="columnSelectorModal" tabindex="-1" aria-labelledby="columnSelectorModalLabel" aria-hidden="true">
@@ -271,48 +294,6 @@
         return cookieValue;
     }
     
-    document.getElementById("add-row").addEventListener("click", function(){
-        var newRow = {
-            user: 1,   // ID d'un user existant
-            asset: 1   // ID d'un asset existant
-        };
-        getVisibleColumns().forEach(function(col) { if(col.field && !newRow[col.field]) newRow[col.field] = ""; });
-        tabledata.push(newRow);
-        table.replaceData(tabledata);
-    });
-    
-    document.getElementById("delete-row").addEventListener("click", function(){
-        tabledata.pop();
-        table.replaceData(tabledata);
-    });
-    
-    document.getElementById("update-row").addEventListener("click", function(){
-        if(tabledata.length > 0) {
-            var firstKey = Object.keys(tabledata[0])[0];
-            tabledata[0][firstKey] = "MODIFIÉ";
-            table.replaceData(tabledata);
-        }
-    });
-    
-    document.getElementById("save-all").addEventListener("click", function(){
-        const csrftoken = getCookie('csrftoken');
-        tabledata.forEach(function(rowData) {
-            $.ajax({
-                url: '/trades/save/',
-                type: 'POST',
-                data: rowData,
-                headers: {'X-CSRFToken': csrftoken },
-                success: function(response) {
-                    // Optionnel : afficher une notification ou mettre à jour l'UI
-                },
-                error: function(xhr) {
-                    alert("Erreur lors de l'enregistrement d'une ligne !");
-                }
-            });
-        });
-        alert("Toutes les lignes ont été envoyées pour sauvegarde.");
-    });
-    
     // Gestion des boutons Binance
     document.getElementById("binanceAuto").addEventListener("click", function(){
         loadBinanceTrades("auto");
@@ -325,6 +306,138 @@
     document.getElementById("binanceAll").addEventListener("click", function(){
         loadBinanceTrades("all");
     });
+    
+    // Gestion des boutons de gestion globale
+    document.getElementById("updateAllTrades").addEventListener("click", function(){
+        if (confirm("⚠️ Êtes-vous sûr de vouloir mettre à jour tous les trades de tous les brokers ?")) {
+            updateAllTrades();
+        }
+    });
+    
+    document.getElementById("deleteAllTrades").addEventListener("click", function(){
+        if (confirm("🚨 ATTENTION ! Êtes-vous absolument sûr de vouloir supprimer TOUS les trades ? Cette action est irréversible !")) {
+            deleteAllTrades();
+        }
+    });
+    
+    // Gestion des boutons Saxo
+    document.querySelectorAll('.saxo-sync-btn').forEach(function(button) {
+        button.addEventListener('click', function() {
+            const brokerId = this.getAttribute('data-broker-id');
+            const brokerName = this.getAttribute('data-broker-name');
+            syncSaxoTrades(brokerId, brokerName);
+        });
+    });
+    
+    function syncSaxoTrades(brokerId, brokerName) {
+        const csrftoken = getCookie('csrftoken');
+        
+        // Afficher un indicateur de chargement
+        const button = event.target;
+        const originalText = button.innerHTML;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sync...';
+        button.disabled = true;
+        
+        $.ajax({
+            url: `/brokers/${brokerId}/sync-trades/`,
+            type: 'POST',
+            headers: {'X-CSRFToken': csrftoken },
+            success: function(response) {
+                if (response.success) {
+                    // Recharger les données de la table
+                    location.reload();
+                    
+                    if (response.saved_count > 0) {
+                        alert(`✅ ${response.saved_count} nouveaux trades Saxo (${brokerName}) synchronisés !\n📊 ${response.total_trades} trades au total.`);
+                    } else {
+                        alert(`ℹ️ Aucun nouveau trade trouvé pour Saxo (${brokerName}).\n📊 ${response.total_trades} trades au total.`);
+                    }
+                } else {
+                    alert("❌ Erreur lors de la synchronisation des trades Saxo: " + response.error);
+                }
+            },
+            error: function(xhr) {
+                console.error("Erreur AJAX:", xhr);
+                alert("❌ Erreur lors de la synchronisation des trades Saxo");
+            },
+            complete: function() {
+                // Restaurer le bouton
+                button.innerHTML = originalText;
+                button.disabled = false;
+            }
+        });
+    }
+    
+    function updateAllTrades() {
+        const csrftoken = getCookie('csrftoken');
+        
+        // Afficher un indicateur de chargement
+        const button = event.target;
+        const originalText = button.innerHTML;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Mise à jour...';
+        button.disabled = true;
+        
+        $.ajax({
+            url: '/trades/update-all/',
+            type: 'POST',
+            headers: {'X-CSRFToken': csrftoken },
+            success: function(response) {
+                if (response.success) {
+                    // Recharger les données de la table
+                    location.reload();
+                    
+                    let details = response.details.join('\n');
+                    alert(`✅ ${response.updated_count} trades mis à jour au total !\n\nDétails par broker:\n${details}`);
+                } else {
+                    alert("❌ Erreur lors de la mise à jour des trades: " + response.error);
+                }
+            },
+            error: function(xhr) {
+                console.error("Erreur AJAX:", xhr);
+                alert("❌ Erreur lors de la mise à jour des trades");
+            },
+            complete: function() {
+                // Restaurer le bouton
+                button.innerHTML = originalText;
+                button.disabled = false;
+            }
+        });
+    }
+    
+    function deleteAllTrades() {
+        const csrftoken = getCookie('csrftoken');
+        
+        // Afficher un indicateur de chargement
+        const button = event.target;
+        const originalText = button.innerHTML;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Suppression...';
+        button.disabled = true;
+        
+        $.ajax({
+            url: '/trades/delete-all/',
+            type: 'POST',
+            headers: {'X-CSRFToken': csrftoken },
+            success: function(response) {
+                if (response.success) {
+                    // Recharger les données de la table
+                    location.reload();
+                    
+                    alert(`✅ ${response.deleted_count} trades supprimés avec succès !`);
+                } else {
+                    alert("❌ Erreur lors de la suppression des trades: " + response.error);
+                }
+            },
+            error: function(xhr) {
+                console.error("Erreur AJAX:", xhr);
+                alert("❌ Erreur lors de la suppression des trades");
+            },
+            complete: function() {
+                // Restaurer le bouton
+                button.innerHTML = originalText;
+                button.disabled = false;
+            }
+        });
+    }
     
     function loadBinanceTrades(mode) {
         const csrftoken = getCookie('csrftoken');

@@ -6,7 +6,7 @@ from typing import Dict, List, Optional, Any
 from decimal import Decimal
 from django.contrib.auth.models import User
 from .brokers.factory import BrokerFactory
-from .models import BrokerCredentials, Asset, Trade, Position, AssetTradable, AssetType, Market
+from .models import BrokerCredentials, Asset, Trade, Position, AssetTradable, AssetType, Market, AllAssets
 
 
 class BrokerService:
@@ -174,8 +174,8 @@ class BrokerService:
             print(f"❌ Erreur synchronisation positions: {e}")
             return []
     
-    def sync_trades_from_broker(self, broker_credentials: BrokerCredentials, limit: int = 100) -> List[Trade]:
-        """Synchronise les trades depuis un broker"""
+    def sync_trades_from_broker(self, broker_credentials: BrokerCredentials, limit: int = 100) -> Dict[str, Any]:
+        """Synchronise les trades depuis un broker et retourne un dictionnaire avec les résultats"""
         print(f"🔄 Synchronisation des trades depuis {broker_credentials.broker_type}")
         
         try:
@@ -187,6 +187,7 @@ class BrokerService:
             print(f"📊 {len(trades_data)} trades récupérés")
             
             trades = []
+            saved_count = 0
             for trade_data in trades_data:
                 try:
                     # Récupérer ou créer AssetType et Market
@@ -230,7 +231,9 @@ class BrokerService:
                         }
                     )
                     
-                    if not created:
+                    if created:
+                        saved_count += 1
+                    else:
                         # Mise à jour si le trade existe déjà
                         trade.size = Decimal(str(trade_data.get('size', 0)))
                         trade.price = Decimal(str(trade_data.get('price', 0)))
@@ -245,12 +248,30 @@ class BrokerService:
                     print(f"❌ Erreur lors de la synchronisation du trade {trade_data.get('symbol', 'Unknown')}: {e}")
                     continue
             
-            print(f"✅ Synchronisation terminée: {len(trades)} trades traités")
-            return trades
+            # Compter le nombre total de trades pour ce broker
+            total_trades = Trade.objects.filter(
+                user=broker_credentials.user,
+                platform=broker_credentials.broker_type
+            ).count()
+            
+            print(f"✅ Synchronisation terminée: {len(trades)} trades traités, {saved_count} nouveaux")
+            return {
+                'success': True,
+                'trades': trades,
+                'saved_count': saved_count,
+                'total_trades': total_trades,
+                'message': f"Synchronisation réussie: {saved_count} nouveaux trades ajoutés"
+            }
             
         except Exception as e:
             print(f"❌ Erreur de synchronisation: {e}")
-            raise
+            return {
+                'success': False,
+                'error': str(e),
+                'trades': [],
+                'saved_count': 0,
+                'total_trades': 0
+            }
     
     def _process_broker_trade(self, broker_trade, broker_credentials, symbol=None):
         """Process a single broker trade and return created Trade objects"""
@@ -332,6 +353,187 @@ class BrokerService:
         
         broker = self.get_broker_instance(broker_credentials)
         return broker.get_auth_url(state)
+
+    def sync_all_assets_from_saxo(self, broker_credentials: BrokerCredentials, limit: int = 1000) -> Dict[str, Any]:
+        """Synchronise les actifs depuis Saxo Bank"""
+        try:
+            broker = self.get_broker_instance(broker_credentials)
+            if not broker:
+                return {'success': False, 'error': 'Broker non supporté'}
+            
+            # Récupérer les actifs depuis Saxo
+            assets_data = broker.get_all_assets(limit=limit)
+            
+            if not assets_data:
+                return {'success': False, 'error': 'Aucune donnée reçue de Saxo'}
+            
+            saved_count = 0
+            updated_count = 0
+            
+            for asset_data in assets_data:
+                try:
+                    # Harmoniser les données Saxo
+                    symbol = asset_data.get('Symbol', '')
+                    name = asset_data.get('Description', '')
+                    asset_type = asset_data.get('AssetType', 'Unknown')
+                    
+                    # Déterminer le marché
+                    exchange_info = asset_data.get('Exchange', {})
+                    market = exchange_info.get('ExchangeId', 'Unknown')
+                    exchange_name = exchange_info.get('Name', '')
+                    country_code = exchange_info.get('CountryCode', '')
+                    
+                    # Déterminer la devise
+                    currency = asset_data.get('CurrencyCode', 'USD')
+                    
+                    # Vérifier si l'actif est tradable
+                    is_tradable = asset_data.get('IsTradable', False)
+                    
+                    # Créer ou mettre à jour l'actif
+                    all_asset, created = AllAssets.objects.update_or_create(
+                        symbol=symbol,
+                        platform='saxo',
+                        defaults={
+                            'name': name,
+                            'asset_type': asset_type,
+                            'market': market,
+                            'currency': currency,
+                            'exchange': exchange_name,
+                            'is_tradable': is_tradable,
+                            'saxo_uic': asset_data.get('Uic'),
+                            'saxo_exchange_id': market,
+                            'saxo_country_code': country_code,
+                        }
+                    )
+                    
+                    if created:
+                        saved_count += 1
+                    else:
+                        updated_count += 1
+                        
+                except Exception as e:
+                    print(f"❌ Erreur lors du traitement de l'actif Saxo {symbol}: {str(e)}")
+                    continue
+            
+            return {
+                'success': True,
+                'saved_count': saved_count,
+                'updated_count': updated_count,
+                'total_processed': len(assets_data),
+                'message': f"Synchronisation Saxo réussie: {saved_count} nouveaux, {updated_count} mis à jour"
+            }
+            
+        except Exception as e:
+            print(f"❌ Erreur lors de la synchronisation Saxo: {str(e)}")
+            return {'success': False, 'error': f"Erreur lors de la synchronisation: {str(e)}"}
+
+    def sync_all_assets_from_binance(self, broker_credentials: BrokerCredentials) -> Dict[str, Any]:
+        """Synchronise les actifs depuis Binance"""
+        try:
+            broker = self.get_broker_instance(broker_credentials)
+            if not broker:
+                return {'success': False, 'error': 'Broker non supporté'}
+            
+            # Récupérer les actifs depuis Binance
+            assets_data = broker.get_all_assets()
+            
+            if not assets_data:
+                return {'success': False, 'error': 'Aucune donnée reçue de Binance'}
+            
+            saved_count = 0
+            updated_count = 0
+            
+            for asset_data in assets_data:
+                try:
+                    # Harmoniser les données Binance
+                    symbol = asset_data.get('symbol', '')
+                    base_asset = asset_data.get('baseAsset', '')
+                    quote_asset = asset_data.get('quoteAsset', '')
+                    status = asset_data.get('status', '')
+                    
+                    # Créer un nom descriptif
+                    name = f"{base_asset}/{quote_asset}"
+                    
+                    # Déterminer le type d'actif (crypto par défaut)
+                    asset_type = 'Crypto'
+                    
+                    # Déterminer le marché
+                    market = 'SPOT'  # Par défaut, pourrait être FUTURES pour d'autres types
+                    
+                    # Vérifier si l'actif est tradable
+                    is_tradable = status == 'TRADING'
+                    
+                    # Créer ou mettre à jour l'actif
+                    all_asset, created = AllAssets.objects.update_or_create(
+                        symbol=symbol,
+                        platform='binance',
+                        defaults={
+                            'name': name,
+                            'asset_type': asset_type,
+                            'market': market,
+                            'currency': quote_asset,
+                            'exchange': 'Binance',
+                            'is_tradable': is_tradable,
+                            'binance_base_asset': base_asset,
+                            'binance_quote_asset': quote_asset,
+                            'binance_status': status,
+                        }
+                    )
+                    
+                    if created:
+                        saved_count += 1
+                    else:
+                        updated_count += 1
+                        
+                except Exception as e:
+                    print(f"❌ Erreur lors du traitement de l'actif Binance {symbol}: {str(e)}")
+                    continue
+            
+            return {
+                'success': True,
+                'saved_count': saved_count,
+                'updated_count': updated_count,
+                'total_processed': len(assets_data),
+                'message': f"Synchronisation Binance réussie: {saved_count} nouveaux, {updated_count} mis à jour"
+            }
+            
+        except Exception as e:
+            print(f"❌ Erreur lors de la synchronisation Binance: {str(e)}")
+            return {'success': False, 'error': f"Erreur lors de la synchronisation: {str(e)}"}
+
+    def sync_all_assets_from_all_brokers(self) -> Dict[str, Any]:
+        """Synchronise les actifs depuis tous les brokers configurés"""
+        try:
+            brokers = BrokerCredentials.objects.filter(is_active=True)
+            total_results = []
+            
+            for broker in brokers:
+                if broker.broker_type == 'saxo':
+                    result = self.sync_all_assets_from_saxo(broker)
+                elif broker.broker_type == 'binance':
+                    result = self.sync_all_assets_from_binance(broker)
+                else:
+                    result = {'success': False, 'error': f'Broker {broker.broker_type} non supporté'}
+                
+                result['broker_name'] = broker.name
+                result['broker_type'] = broker.broker_type
+                total_results.append(result)
+            
+            # Calculer les totaux
+            total_saved = sum(r.get('saved_count', 0) for r in total_results if r.get('success'))
+            total_updated = sum(r.get('updated_count', 0) for r in total_results if r.get('success'))
+            
+            return {
+                'success': True,
+                'total_saved': total_saved,
+                'total_updated': total_updated,
+                'broker_results': total_results,
+                'message': f"Synchronisation complète: {total_saved} nouveaux, {total_updated} mis à jour"
+            }
+            
+        except Exception as e:
+            print(f"❌ Erreur lors de la synchronisation globale: {str(e)}")
+            return {'success': False, 'error': f"Erreur lors de la synchronisation globale: {str(e)}"}
 
 
 class SaxoAuthService:

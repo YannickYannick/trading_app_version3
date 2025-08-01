@@ -606,3 +606,25 @@ class BinanceBroker(BrokerBase):
             return dt.strftime('%Y-%m-%d %H:%M:%S')
         except:
             return datetime.now().strftime('%Y-%m-%d %H:%M:%S') 
+
+    def get_all_assets(self) -> List[Dict]:
+        """Récupère tous les actifs disponibles depuis Binance"""
+        try:
+            print("🔄 Récupération des actifs Binance")
+            
+            # Utiliser get_exchange_info() pour récupérer tous les symboles
+            exchange_info = self._make_request('GET', '/api/v3/exchangeInfo', {}, signed=False)
+            symbols = exchange_info.get('symbols', [])
+            
+            # Filtrer seulement les symboles SPOT qui sont en trading
+            spot_symbols = [
+                symbol for symbol in symbols 
+                if symbol.get('status') == 'TRADING' and symbol.get('isSpotTradingAllowed', False)
+            ]
+            
+            print(f"✅ {len(spot_symbols)} actifs SPOT récupérés depuis Binance")
+            return spot_symbols
+                
+        except Exception as e:
+            print(f"❌ Erreur lors de la récupération des actifs Binance: {str(e)}")
+            return [] 

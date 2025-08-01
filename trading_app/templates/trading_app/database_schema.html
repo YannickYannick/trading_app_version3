@@ -1,0 +1,524 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Structure de la Base de Données - Trading App{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h2><i class="fas fa-database"></i> Structure de la Base de Données</h2>
+                    <p class="mb-0">Diagramme interactif de l'architecture de données de l'application de trading</p>
+                </div>
+                <div class="card-body">
+                    <!-- Contrôles -->
+                    <div class="row mb-4">
+                        <div class="col-md-6">
+                            <div class="btn-group" role="group">
+                                <button type="button" class="btn btn-outline-primary" onclick="toggleTableDetails()">
+                                    <i class="fas fa-eye"></i> Afficher/Masquer les détails
+                                </button>
+                                <button type="button" class="btn btn-outline-success" onclick="exportSchema()">
+                                    <i class="fas fa-download"></i> Exporter
+                                </button>
+                                <button type="button" class="btn btn-outline-info" onclick="resetView()">
+                                    <i class="fas fa-home"></i> Vue d'ensemble
+                                </button>
+                            </div>
+                        </div>
+                        <div class="col-md-6 text-end">
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="checkbox" id="showRelationships" checked>
+                                <label class="form-check-label" for="showRelationships">
+                                    Relations
+                                </label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="checkbox" id="showFields" checked>
+                                <label class="form-check-label" for="showFields">
+                                    Champs
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Diagramme -->
+                    <div id="database-diagram" class="border rounded p-3" style="min-height: 600px; background: #f8f9fa;">
+                        <!-- Les tables seront générées ici par JavaScript -->
+                    </div>
+
+                    <!-- Statistiques -->
+                    <div class="row mt-4">
+                        <div class="col-md-3">
+                            <div class="card bg-light">
+                                <div class="card-body text-center">
+                                    <h5 class="card-title text-primary">{{ schema_data|length }}</h5>
+                                    <p class="card-text">Tables</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card bg-light">
+                                <div class="card-body text-center">
+                                    <h5 class="card-title text-success" id="total-fields">0</h5>
+                                    <p class="card-text">Champs</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card bg-light">
+                                <div class="card-body text-center">
+                                    <h5 class="card-title text-info" id="total-relationships">0</h5>
+                                    <p class="card-text">Relations</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card bg-light">
+                                <div class="card-body text-center">
+                                    <h5 class="card-title text-warning" id="foreign-keys">0</h5>
+                                    <p class="card-text">Clés étrangères</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal pour les détails d'une table -->
+<div class="modal fade" id="tableDetailsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="tableDetailsTitle">Détails de la table</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="tableDetailsBody">
+                <!-- Contenu dynamique -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.table-card {
+    border: 2px solid #dee2e6;
+    border-radius: 8px;
+    margin: 10px;
+    background: white;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    transition: all 0.3s ease;
+    cursor: pointer;
+    min-width: 250px;
+    max-width: 300px;
+}
+
+.table-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+    border-color: #007bff;
+}
+
+.table-header {
+    padding: 10px;
+    border-bottom: 1px solid #dee2e6;
+    font-weight: bold;
+    color: white;
+    border-radius: 6px 6px 0 0;
+}
+
+.table-body {
+    padding: 10px;
+}
+
+.field-item {
+    padding: 2px 0;
+    font-size: 0.9em;
+    border-bottom: 1px solid #f8f9fa;
+}
+
+.field-item:last-child {
+    border-bottom: none;
+}
+
+.field-name {
+    font-weight: 500;
+    color: #495057;
+}
+
+.field-type {
+    color: #6c757d;
+    font-size: 0.8em;
+}
+
+.primary-key {
+    background-color: #fff3cd;
+    border-left: 3px solid #ffc107;
+}
+
+.foreign-key {
+    background-color: #d1ecf1;
+    border-left: 3px solid #17a2b8;
+}
+
+.relationship-line {
+    stroke: #6c757d;
+    stroke-width: 2;
+    fill: none;
+    marker-end: url(#arrowhead);
+}
+
+.relationship-label {
+    font-size: 12px;
+    fill: #495057;
+    text-anchor: middle;
+}
+
+#database-diagram {
+    position: relative;
+    overflow: auto;
+}
+
+.diagram-container {
+    position: relative;
+    min-height: 800px;
+    padding: 20px;
+}
+
+.legend {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: white;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    padding: 10px;
+    font-size: 0.8em;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    margin: 2px 0;
+}
+
+.legend-color {
+    width: 12px;
+    height: 12px;
+    margin-right: 5px;
+    border-radius: 2px;
+}
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    var schemaData = JSON.parse('{{ schema_data|escapejs }}');
+    var showDetails = true;
+    var showRelationships = true;
+    var showFields = true;
+
+    // Initialisation
+    document.addEventListener('DOMContentLoaded', function() {
+        renderDatabaseDiagram();
+        updateStatistics();
+        
+        // Event listeners pour les contrôles
+        document.getElementById('showRelationships').addEventListener('change', function() {
+            showRelationships = this.checked;
+            renderDatabaseDiagram();
+        });
+        
+        document.getElementById('showFields').addEventListener('change', function() {
+            showFields = this.checked;
+            renderDatabaseDiagram();
+        });
+    });
+
+    function renderDatabaseDiagram() {
+        const container = document.getElementById('database-diagram');
+        container.innerHTML = '';
+        
+        // Créer le conteneur SVG pour les relations
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('width', '100%');
+        svg.setAttribute('height', '100%');
+        svg.style.position = 'absolute';
+        svg.style.top = '0';
+        svg.style.left = '0';
+        svg.style.pointerEvents = 'none';
+        svg.style.zIndex = '1';
+        
+        // Définir les marqueurs pour les flèches
+        const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+        const marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+        marker.setAttribute('id', 'arrowhead');
+        marker.setAttribute('markerWidth', '10');
+        marker.setAttribute('markerHeight', '7');
+        marker.setAttribute('refX', '9');
+        marker.setAttribute('refY', '3.5');
+        marker.setAttribute('orient', 'auto');
+        
+        const polygon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+        polygon.setAttribute('points', '0 0, 10 3.5, 0 7');
+        polygon.setAttribute('fill', '#6c757d');
+        
+        marker.appendChild(polygon);
+        defs.appendChild(marker);
+        svg.appendChild(defs);
+        
+        container.appendChild(svg);
+        
+        // Créer le conteneur pour les tables
+        const tablesContainer = document.createElement('div');
+        tablesContainer.className = 'diagram-container';
+        tablesContainer.style.position = 'relative';
+        tablesContainer.style.zIndex = '2';
+        container.appendChild(tablesContainer);
+        
+        // Positionner les tables en grille
+        const tablesPerRow = 3;
+        schemaData.tables.forEach((table, index) => {
+            const tableCard = createTableCard(table);
+            const row = Math.floor(index / tablesPerRow);
+            const col = index % tablesPerRow;
+            
+            tableCard.style.position = 'absolute';
+            tableCard.style.left = (col * 320 + 20) + 'px';
+            tableCard.style.top = (row * 200 + 20) + 'px';
+            
+            tablesContainer.appendChild(tableCard);
+        });
+        
+        // Dessiner les relations si activées
+        if (showRelationships) {
+            setTimeout(() => drawRelationships(svg), 100);
+        }
+        
+        // Ajouter la légende
+        addLegend(container);
+    }
+
+    function createTableCard(table) {
+        const card = document.createElement('div');
+        card.className = 'table-card';
+        card.onclick = () => showTableDetails(table);
+        
+        const header = document.createElement('div');
+        header.className = 'table-header';
+        header.style.backgroundColor = table.color;
+        header.innerHTML = `
+            <div class="d-flex justify-content-between align-items-center">
+                <span>${table.name}</span>
+                <i class="fas fa-table"></i>
+            </div>
+            <small style="opacity: 0.8;">${table.description}</small>
+        `;
+        
+        const body = document.createElement('div');
+        body.className = 'table-body';
+        
+        if (showFields) {
+            table.fields.forEach(field => {
+                const fieldItem = document.createElement('div');
+                fieldItem.className = 'field-item';
+                
+                if (field.primary_key) {
+                    fieldItem.classList.add('primary-key');
+                } else if (field.type === 'ForeignKey') {
+                    fieldItem.classList.add('foreign-key');
+                }
+                
+                fieldItem.innerHTML = `
+                    <div class="field-name">${field.name}</div>
+                    <div class="field-type">${formatFieldType(field)}</div>
+                `;
+                
+                body.appendChild(fieldItem);
+            });
+        } else {
+            body.innerHTML = `<small class="text-muted">${table.fields.length} champs</small>`;
+        }
+        
+        card.appendChild(header);
+        card.appendChild(body);
+        
+        return card;
+    }
+
+    function formatFieldType(field) {
+        let type = field.type;
+        if (field.max_length) {
+            type += `(${field.max_length})`;
+        }
+        if (field.to) {
+            type += ` → ${field.to}`;
+        }
+        if (field.unique) {
+            type += ' [UNIQUE]';
+        }
+        if (field.primary_key) {
+            type += ' [PK]';
+        }
+        return type;
+    }
+
+    function drawRelationships(svg) {
+        const tables = document.querySelectorAll('.table-card');
+        const tablePositions = {};
+        
+        // Obtenir les positions des tables
+        tables.forEach(table => {
+            const rect = table.getBoundingClientRect();
+            const containerRect = document.getElementById('database-diagram').getBoundingClientRect();
+            tablePositions[table.querySelector('.table-header').textContent.trim().split('\n')[0]] = {
+                x: rect.left - containerRect.left + rect.width / 2,
+                y: rect.top - containerRect.top + rect.height / 2
+            };
+        });
+        
+        // Dessiner les relations
+        schemaData.relationships.forEach(rel => {
+            const fromPos = tablePositions[rel.from];
+            const toPos = tablePositions[rel.to];
+            
+            if (fromPos && toPos) {
+                const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                line.setAttribute('x1', fromPos.x);
+                line.setAttribute('y1', fromPos.y);
+                line.setAttribute('x2', toPos.x);
+                line.setAttribute('y2', toPos.y);
+                line.setAttribute('class', 'relationship-line');
+                
+                const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                label.setAttribute('x', (fromPos.x + toPos.x) / 2);
+                label.setAttribute('y', (fromPos.y + toPos.y) / 2 - 5);
+                label.setAttribute('class', 'relationship-label');
+                label.textContent = rel.type;
+                
+                svg.appendChild(line);
+                svg.appendChild(label);
+            }
+        });
+    }
+
+    function addLegend(container) {
+        const legend = document.createElement('div');
+        legend.className = 'legend';
+        legend.innerHTML = `
+            <strong>Légende:</strong><br>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #fff3cd;"></div>
+                Clé primaire
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #d1ecf1;"></div>
+                Clé étrangère
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #6c757d;"></div>
+                Relation
+            </div>
+        `;
+        container.appendChild(legend);
+    }
+
+    function showTableDetails(table) {
+        const modal = new bootstrap.Modal(document.getElementById('tableDetailsModal'));
+        document.getElementById('tableDetailsTitle').textContent = `Table: ${table.name}`;
+        
+        let detailsHtml = `
+            <div class="mb-3">
+                <strong>Description:</strong> ${table.description}
+            </div>
+            <div class="mb-3">
+                <strong>Nombre de champs:</strong> ${table.fields.length}
+            </div>
+            <div class="table-responsive">
+                <table class="table table-sm table-striped">
+                    <thead>
+                        <tr>
+                            <th>Champ</th>
+                            <th>Type</th>
+                            <th>Propriétés</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+        `;
+        
+        table.fields.forEach(field => {
+            let properties = [];
+            if (field.primary_key) properties.push('Clé primaire');
+            if (field.unique) properties.push('Unique');
+            if (field.max_length) properties.push(`Max: ${field.max_length}`);
+            if (field.to) properties.push(`→ ${field.to}`);
+            
+            detailsHtml += `
+                <tr class="${field.primary_key ? 'table-warning' : field.type === 'ForeignKey' ? 'table-info' : ''}">
+                    <td><strong>${field.name}</strong></td>
+                    <td>${field.type}</td>
+                    <td>${properties.join(', ')}</td>
+                </tr>
+            `;
+        });
+        
+        detailsHtml += `
+                    </tbody>
+                </table>
+            </div>
+        `;
+        
+        document.getElementById('tableDetailsBody').innerHTML = detailsHtml;
+        modal.show();
+    }
+
+    function updateStatistics() {
+        let totalFields = 0;
+        let totalRelationships = schemaData.relationships.length;
+        let foreignKeys = 0;
+        
+        schemaData.tables.forEach(table => {
+            totalFields += table.fields.length;
+            table.fields.forEach(field => {
+                if (field.type === 'ForeignKey') {
+                    foreignKeys++;
+                }
+            });
+        });
+        
+        document.getElementById('total-fields').textContent = totalFields;
+        document.getElementById('total-relationships').textContent = totalRelationships;
+        document.getElementById('foreign-keys').textContent = foreignKeys;
+    }
+
+    function toggleTableDetails() {
+        showDetails = !showDetails;
+        renderDatabaseDiagram();
+    }
+
+    function exportSchema() {
+        const dataStr = JSON.stringify(schemaData, null, 2);
+        const dataBlob = new Blob([dataStr], {type: 'application/json'});
+        const url = URL.createObjectURL(dataBlob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'database_schema.json';
+        link.click();
+        URL.revokeObjectURL(url);
+    }
+
+    function resetView() {
+        showDetails = true;
+        showRelationships = true;
+        showFields = true;
+        document.getElementById('showRelationships').checked = true;
+        document.getElementById('showFields').checked = true;
+        renderDatabaseDiagram();
+    }
+</script>
+{% endblock %} 

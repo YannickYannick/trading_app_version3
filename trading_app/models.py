@@ -156,3 +156,42 @@ class Trade(models.Model):
     
     def __str__(self):
         return f"{self.side} {self.size} {self.asset_tradable.symbol} @ {self.price}"
+
+class AllAssets(models.Model):
+    """Catalogue universel d'actifs récupérés depuis les APIs des brokers"""
+    symbol = models.CharField(max_length=50)
+    name = models.CharField(max_length=200)
+    platform = models.CharField(max_length=20, choices=BROKER_CHOICES)
+    asset_type = models.CharField(max_length=50)  # Stock, Crypto, ETF, Bond, etc.
+    market = models.CharField(max_length=50)  # NYSE, NASDAQ, SPOT, FUTURES, etc.
+    currency = models.CharField(max_length=10, default='USD')
+    exchange = models.CharField(max_length=100, blank=True)
+    is_tradable = models.BooleanField(default=True)
+    last_updated = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    # Champs spécifiques Saxo
+    saxo_uic = models.IntegerField(null=True, blank=True)
+    saxo_exchange_id = models.CharField(max_length=20, blank=True)
+    saxo_country_code = models.CharField(max_length=10, blank=True)
+    
+    # Champs spécifiques Binance
+    binance_base_asset = models.CharField(max_length=20, blank=True)
+    binance_quote_asset = models.CharField(max_length=20, blank=True)
+    binance_status = models.CharField(max_length=20, blank=True)
+    
+    class Meta:
+        unique_together = ['symbol', 'platform']
+        indexes = [
+            models.Index(fields=['platform', 'asset_type']),
+            models.Index(fields=['symbol']),
+            models.Index(fields=['name']),
+        ]
+    
+    def __str__(self):
+        return f"{self.symbol} ({self.platform}) - {self.name}"
+    
+    @property
+    def display_name(self):
+        """Nom d'affichage pour l'autocomplétion"""
+        return f"{self.symbol} - {self.name}"

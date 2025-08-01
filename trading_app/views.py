@@ -4,7 +4,8 @@ from django.contrib.auth.decorators import login_required
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from django.contrib import messages
-from django.db import transaction
+from django.db import transaction, models
+from django.db.models import Q
 from django.core.paginator import Paginator
 from django.urls import reverse
 from django.conf import settings
@@ -17,7 +18,7 @@ import requests
 import yfinance as yf
 from django.core.serializers.json import DjangoJSONEncoder
 from .brokers.factory import BrokerFactory
-from .models import Asset, Position, Trade, Strategy, BrokerCredentials, AssetType, Market, AssetTradable
+from .models import Asset, Position, Trade, Strategy, BrokerCredentials, AssetType, Market, AssetTradable, AllAssets
 
 logger = logging.getLogger(__name__)
 
@@ -39,10 +40,61 @@ def asset_list(request):
     return render(request, 'trading_app/asset_list.html', {'assets': assets})
 
 def asset_tabulator(request):
-    assets = Asset.objects.all().values()
-    data_assets = list(assets)
+    # Récupérer les assets avec les données de taille depuis les positions
+    assets = Asset.objects.all()
+    data_assets = []
+    
+    for asset in assets:
+        # Calculer la taille totale de l'asset depuis les positions
+        if request.user.is_authenticated:
+            total_size = Position.objects.filter(
+                asset_tradable__asset=asset,
+                user=request.user
+            ).aggregate(
+                total_size=models.Sum('size')
+            )['total_size'] or 0
+        else:
+            total_size = 0
+        
+        asset_data = {
+            'id': asset.id,
+            'symbol': asset.symbol,
+            'name': asset.name,
+            'sector': asset.sector,
+            'industry': asset.industry,
+            'market_cap': float(asset.market_cap),
+            'price_history': asset.price_history,
+            'size': float(total_size),  # Taille totale depuis les positions
+        }
+        data_assets.append(asset_data)
+    
+    # Calculer les données pour les graphiques
+    sector_data = {}
+    industry_data = {}
+    
+    for asset in data_assets:
+        size = asset['size']
+        sector = asset['sector'] or 'Non défini'
+        industry = asset['industry'] or 'Non défini'
+        
+        # Agréger par secteur
+        if sector not in sector_data:
+            sector_data[sector] = 0
+        sector_data[sector] += size
+        
+        # Agréger par industrie
+        if industry not in industry_data:
+            industry_data[industry] = 0
+        industry_data[industry] += size
+    
+    # Convertir en format pour Chart.js
+    chart_sector_data = [{'label': k, 'value': v} for k, v in sector_data.items() if v > 0]
+    chart_industry_data = [{'label': k, 'value': v} for k, v in industry_data.items() if v > 0]
+    
     return render(request, 'trading_app/asset_tabulator.html', {
         'data_assets': json.dumps(data_assets, cls=DjangoJSONEncoder),
+        'chart_sector_data': json.dumps(chart_sector_data, cls=DjangoJSONEncoder),
+        'chart_industry_data': json.dumps(chart_industry_data, cls=DjangoJSONEncoder),
     })
 
 #@csrf_exempt
@@ -95,9 +147,17 @@ def trade_tabulator(request):
     } for trade in trades]
 
     print(f"📊 {len(tabledata)} trades formatés pour l'affichage")
+    
+    # Récupérer les brokers Saxo configurés pour les boutons de synchronisation
+    saxo_brokers = BrokerCredentials.objects.filter(
+        user=request.user,
+        broker_type='saxo',
+        is_active=True
+    ).order_by('name')
 
     return render(request, 'trading_app/trade_tabulator.html', {
-        'data_trades': json.dumps(tabledata, cls=DjangoJSONEncoder)
+        'data_trades': json.dumps(tabledata, cls=DjangoJSONEncoder),
+        'saxo_brokers': saxo_brokers,
     })
 def trade_tabulator_with_synch(request):
     """Affiche les trades depuis les brokers"""
@@ -141,6 +201,11 @@ def trade_tabulator_with_synch(request):
 def position_tabulator(request):
     positions = Position.objects.select_related('asset_tradable__asset').all()
     data_positions = []
+    
+    # Calculer les données pour les graphiques
+    sector_data = {}
+    industry_data = {}
+    
     for position in positions:
         position_data = {
             'id': position.id,
@@ -160,8 +225,38 @@ def position_tabulator(request):
             'updated_at': position.updated_at.isoformat(),
         }
         data_positions.append(position_data)
+        
+        # Agréger les données pour les graphiques
+        size = float(position.size)
+        sector = position.asset_tradable.asset.sector or 'Non défini'
+        industry = position.asset_tradable.asset.industry or 'Non défini'
+        
+        # Agréger par secteur
+        if sector not in sector_data:
+            sector_data[sector] = 0
+        sector_data[sector] += size
+        
+        # Agréger par industrie
+        if industry not in industry_data:
+            industry_data[industry] = 0
+        industry_data[industry] += size
+    
+    # Convertir en format pour Chart.js
+    chart_sector_data = [{'label': k, 'value': v} for k, v in sector_data.items() if v > 0]
+    chart_industry_data = [{'label': k, 'value': v} for k, v in industry_data.items() if v > 0]
+    
+    # Récupérer les brokers Saxo configurés pour les boutons de synchronisation
+    saxo_brokers = BrokerCredentials.objects.filter(
+        user=request.user,
+        broker_type='saxo',
+        is_active=True
+    ).order_by('name')
+    
     return render(request, 'trading_app/position_tabulator.html', {
         'data_positions': json.dumps(data_positions, cls=DjangoJSONEncoder),
+        'saxo_brokers': saxo_brokers,
+        'chart_sector_data': json.dumps(chart_sector_data, cls=DjangoJSONEncoder),
+        'chart_industry_data': json.dumps(chart_industry_data, cls=DjangoJSONEncoder),
     })
 
 def strategy_tabulator(request):
@@ -334,11 +429,17 @@ def sync_broker_data(request, broker_id):
                 "message": f"{len(positions)} positions synchronisées"
             })
         elif data_type == 'trades':
-            trades = broker_service.sync_trades_from_broker(broker_creds)
-            return JsonResponse({
-                "success": True,
-                "message": f"{len(trades)} trades synchronisés"
-            })
+            result = broker_service.sync_trades_from_broker(broker_creds)
+            if result['success']:
+                return JsonResponse({
+                    "success": True,
+                    "message": f"{result['saved_count']} nouveaux trades synchronisés sur {result['total_trades']} au total"
+                })
+            else:
+                return JsonResponse({
+                    "success": False,
+                    "error": result['error']
+                }, status=400)
         else:
             return JsonResponse({"error": "Type de données non supporté"}, status=400)
             
@@ -1295,6 +1396,195 @@ def binance_trades_ajax(request):
             'error': str(e)
         })
 
+@login_required
+@csrf_exempt
+def sync_saxo_trades(request, broker_id):
+    """Synchroniser les trades depuis un broker Saxo spécifique"""
+    try:
+        # Récupérer le broker
+        broker_creds = get_object_or_404(BrokerCredentials, id=broker_id, user=request.user, broker_type='saxo')
+        
+        # Créer le service broker
+        broker_service = BrokerService(request.user)
+        
+        # Synchroniser les trades
+        result = broker_service.sync_trades_from_broker(broker_creds)
+        
+        if result['success']:
+            return JsonResponse({
+                'success': True,
+                'message': f"✅ {result.get('saved_count', 0)} nouveaux trades Saxo synchronisés",
+                'saved_count': result.get('saved_count', 0),
+                'total_trades': result.get('total_trades', 0)
+            })
+        else:
+            return JsonResponse({
+                'success': False,
+                'error': result.get('error', 'Erreur inconnue lors de la synchronisation')
+            }, status=400)
+            
+    except Exception as e:
+        logger.error(f"Erreur lors de la synchronisation des trades Saxo: {str(e)}")
+        return JsonResponse({
+            'success': False,
+            'error': f"Erreur lors de la synchronisation: {str(e)}"
+        }, status=500)
+
+@login_required
+@csrf_exempt
+def sync_saxo_positions(request, broker_id):
+    """Synchroniser les positions depuis un broker Saxo spécifique"""
+    try:
+        # Récupérer le broker
+        broker_creds = get_object_or_404(BrokerCredentials, id=broker_id, user=request.user, broker_type='saxo')
+        
+        # Créer le service broker
+        broker_service = BrokerService(request.user)
+        
+        # Synchroniser les positions
+        positions = broker_service.sync_positions_from_broker(broker_creds)
+        
+        # Compter le nombre total de positions pour ce broker
+        total_positions = Position.objects.filter(
+            user=broker_creds.user,
+            asset_tradable__platform=broker_creds.broker_type
+        ).count()
+        
+        return JsonResponse({
+            'success': True,
+            'message': f"✅ {len(positions)} positions Saxo synchronisées",
+            'saved_count': len(positions),
+            'total_positions': total_positions
+        })
+            
+    except Exception as e:
+        logger.error(f"Erreur lors de la synchronisation des positions Saxo: {str(e)}")
+        return JsonResponse({
+            'success': False,
+            'error': f"Erreur lors de la synchronisation: {str(e)}"
+        }, status=500)
+
+@login_required
+@csrf_exempt
+def delete_all_trades(request):
+    """Supprimer tous les trades de tous les brokers"""
+    try:
+        # Compter les trades avant suppression
+        trades_count = Trade.objects.filter(user=request.user).count()
+        
+        # Supprimer tous les trades de l'utilisateur
+        Trade.objects.filter(user=request.user).delete()
+        
+        return JsonResponse({
+            'success': True,
+            'message': f"✅ {trades_count} trades supprimés avec succès",
+            'deleted_count': trades_count
+        })
+            
+    except Exception as e:
+        logger.error(f"Erreur lors de la suppression des trades: {str(e)}")
+        return JsonResponse({
+            'success': False,
+            'error': f"Erreur lors de la suppression: {str(e)}"
+        }, status=500)
+
+@login_required
+@csrf_exempt
+def update_all_trades(request):
+    """Mettre à jour tous les trades de tous les brokers"""
+    try:
+        # Récupérer tous les brokers configurés
+        brokers = BrokerCredentials.objects.filter(user=request.user, is_active=True)
+        broker_service = BrokerService(request.user)
+        
+        total_updated = 0
+        results = []
+        
+        for broker in brokers:
+            try:
+                # Synchroniser les trades pour ce broker
+                result = broker_service.sync_trades_from_broker(broker)
+                if result['success']:
+                    total_updated += result.get('saved_count', 0)
+                    results.append(f"{broker.name}: {result.get('saved_count', 0)} trades")
+                else:
+                    results.append(f"{broker.name}: Erreur - {result.get('error', 'Erreur inconnue')}")
+            except Exception as e:
+                results.append(f"{broker.name}: Erreur - {str(e)}")
+        
+        return JsonResponse({
+            'success': True,
+            'message': f"✅ {total_updated} trades mis à jour au total",
+            'updated_count': total_updated,
+            'details': results
+        })
+            
+    except Exception as e:
+        logger.error(f"Erreur lors de la mise à jour des trades: {str(e)}")
+        return JsonResponse({
+            'success': False,
+            'error': f"Erreur lors de la mise à jour: {str(e)}"
+        }, status=500)
+
+@login_required
+@csrf_exempt
+def delete_all_positions(request):
+    """Supprimer toutes les positions de tous les brokers"""
+    try:
+        # Compter les positions avant suppression
+        positions_count = Position.objects.filter(user=request.user).count()
+        
+        # Supprimer toutes les positions de l'utilisateur
+        Position.objects.filter(user=request.user).delete()
+        
+        return JsonResponse({
+            'success': True,
+            'message': f"✅ {positions_count} positions supprimées avec succès",
+            'deleted_count': positions_count
+        })
+            
+    except Exception as e:
+        logger.error(f"Erreur lors de la suppression des positions: {str(e)}")
+        return JsonResponse({
+            'success': False,
+            'error': f"Erreur lors de la suppression: {str(e)}"
+        }, status=500)
+
+@login_required
+@csrf_exempt
+def update_all_positions(request):
+    """Mettre à jour toutes les positions de tous les brokers"""
+    try:
+        # Récupérer tous les brokers configurés
+        brokers = BrokerCredentials.objects.filter(user=request.user, is_active=True)
+        broker_service = BrokerService(request.user)
+        
+        total_updated = 0
+        results = []
+        
+        for broker in brokers:
+            try:
+                # Synchroniser les positions pour ce broker
+                positions = broker_service.sync_positions_from_broker(broker)
+                total_updated += len(positions)
+                results.append(f"{broker.name}: {len(positions)} positions")
+            except Exception as e:
+                results.append(f"{broker.name}: Erreur - {str(e)}")
+        
+        return JsonResponse({
+            'success': True,
+            'message': f"✅ {total_updated} positions mises à jour au total",
+            'updated_count': total_updated,
+            'details': results
+        })
+            
+    except Exception as e:
+        logger.error(f"Erreur lors de la mise à jour des positions: {str(e)}")
+        return JsonResponse({
+            'success': False,
+            'error': f"Erreur lors de la mise à jour: {str(e)}"
+        }, status=500)
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def binance_positions_ajax(request):
@@ -1410,4 +1700,268 @@ def binance_positions_ajax(request):
     except Exception as e:
         print(f"❌ Erreur AJAX positions Binance: {e}")
         return JsonResponse({'success': False, 'error': str(e)})
+
+def database_schema(request):
+    """Vue pour afficher le diagramme de la structure de la base de données"""
+    
+    # Définir la structure de la base de données
+    schema_data = {
+        'tables': [
+            {
+                'name': 'User',
+                'description': 'Utilisateurs Django (auth)',
+                'fields': [
+                    {'name': 'id', 'type': 'IntegerField', 'primary_key': True},
+                    {'name': 'username', 'type': 'CharField', 'max_length': 150},
+                    {'name': 'email', 'type': 'EmailField'},
+                    {'name': 'password', 'type': 'CharField'},
+                    {'name': 'is_active', 'type': 'BooleanField'},
+                    {'name': 'date_joined', 'type': 'DateTimeField'},
+                ],
+                'color': '#e3f2fd'
+            },
+            {
+                'name': 'AssetType',
+                'description': 'Types d\'actifs (Action, ETF, Crypto, etc.)',
+                'fields': [
+                    {'name': 'id', 'type': 'IntegerField', 'primary_key': True},
+                    {'name': 'name', 'type': 'CharField', 'max_length': 50, 'unique': True},
+                    {'name': 'platform_id', 'type': 'CharField', 'max_length': 50},
+                ],
+                'color': '#f3e5f5'
+            },
+            {
+                'name': 'Market',
+                'description': 'Marchés (NASDAQ, NYSE, EURONEXT, etc.)',
+                'fields': [
+                    {'name': 'id', 'type': 'IntegerField', 'primary_key': True},
+                    {'name': 'name', 'type': 'CharField', 'max_length': 50, 'unique': True},
+                    {'name': 'platform_id', 'type': 'CharField', 'max_length': 50},
+                ],
+                'color': '#e8f5e8'
+            },
+            {
+                'name': 'Asset',
+                'description': 'Actif sous-jacent (peut avoir plusieurs versions tradables)',
+                'fields': [
+                    {'name': 'id', 'type': 'IntegerField', 'primary_key': True},
+                    {'name': 'symbol', 'type': 'CharField', 'max_length': 20, 'unique': True},
+                    {'name': 'name', 'type': 'CharField', 'max_length': 100},
+                    {'name': 'sector', 'type': 'CharField', 'max_length': 100},
+                    {'name': 'industry', 'type': 'CharField', 'max_length': 100},
+                    {'name': 'market_cap', 'type': 'FloatField'},
+                    {'name': 'price_history', 'type': 'TextField'},
+                ],
+                'color': '#fff3e0'
+            },
+            {
+                'name': 'AssetTradable',
+                'description': 'Actifs tradables sur une plateforme spécifique',
+                'fields': [
+                    {'name': 'id', 'type': 'IntegerField', 'primary_key': True},
+                    {'name': 'asset_id', 'type': 'ForeignKey', 'to': 'Asset'},
+                    {'name': 'symbol', 'type': 'CharField', 'max_length': 20},
+                    {'name': 'name', 'type': 'CharField', 'max_length': 100},
+                    {'name': 'platform', 'type': 'CharField', 'max_length': 20},
+                    {'name': 'asset_type_id', 'type': 'ForeignKey', 'to': 'AssetType'},
+                    {'name': 'market_id', 'type': 'ForeignKey', 'to': 'Market'},
+                    {'name': 'created_at', 'type': 'DateTimeField'},
+                ],
+                'color': '#fce4ec'
+            },
+            {
+                'name': 'BrokerCredentials',
+                'description': 'Credentials des courtiers',
+                'fields': [
+                    {'name': 'id', 'type': 'IntegerField', 'primary_key': True},
+                    {'name': 'user_id', 'type': 'ForeignKey', 'to': 'User'},
+                    {'name': 'broker_type', 'type': 'CharField', 'max_length': 20},
+                    {'name': 'name', 'type': 'CharField', 'max_length': 100},
+                    {'name': 'environment', 'type': 'CharField', 'max_length': 20},
+                    {'name': 'saxo_client_id', 'type': 'CharField', 'max_length': 100},
+                    {'name': 'saxo_client_secret', 'type': 'CharField', 'max_length': 100},
+                    {'name': 'saxo_access_token', 'type': 'TextField'},
+                    {'name': 'saxo_refresh_token', 'type': 'TextField'},
+                    {'name': 'binance_api_key', 'type': 'CharField', 'max_length': 100},
+                    {'name': 'binance_api_secret', 'type': 'CharField', 'max_length': 100},
+                    {'name': 'is_active', 'type': 'BooleanField'},
+                ],
+                'color': '#e0f2f1'
+            },
+            {
+                'name': 'Strategy',
+                'description': 'Stratégies de trading',
+                'fields': [
+                    {'name': 'id', 'type': 'IntegerField', 'primary_key': True},
+                    {'name': 'name', 'type': 'CharField', 'max_length': 100, 'unique': True},
+                    {'name': 'description', 'type': 'TextField'},
+                    {'name': 'created_by_id', 'type': 'ForeignKey', 'to': 'User'},
+                    {'name': 'created_at', 'type': 'DateTimeField'},
+                ],
+                'color': '#f1f8e9'
+            },
+            {
+                'name': 'Position',
+                'description': 'Positions de trading',
+                'fields': [
+                    {'name': 'id', 'type': 'IntegerField', 'primary_key': True},
+                    {'name': 'user_id', 'type': 'ForeignKey', 'to': 'User'},
+                    {'name': 'asset_tradable_id', 'type': 'ForeignKey', 'to': 'AssetTradable'},
+                    {'name': 'size', 'type': 'DecimalField', 'max_digits': 15, 'decimal_places': 2},
+                    {'name': 'entry_price', 'type': 'DecimalField', 'max_digits': 15, 'decimal_places': 5},
+                    {'name': 'current_price', 'type': 'DecimalField', 'max_digits': 15, 'decimal_places': 5},
+                    {'name': 'side', 'type': 'CharField', 'max_length': 4},
+                    {'name': 'status', 'type': 'CharField', 'max_length': 10},
+                    {'name': 'pnl', 'type': 'DecimalField', 'max_digits': 15, 'decimal_places': 2},
+                    {'name': 'created_at', 'type': 'DateTimeField'},
+                    {'name': 'updated_at', 'type': 'DateTimeField'},
+                ],
+                'color': '#fff8e1'
+            },
+            {
+                'name': 'Trade',
+                'description': 'Trades exécutés',
+                'fields': [
+                    {'name': 'id', 'type': 'IntegerField', 'primary_key': True},
+                    {'name': 'user_id', 'type': 'ForeignKey', 'to': 'User'},
+                    {'name': 'asset_tradable_id', 'type': 'ForeignKey', 'to': 'AssetTradable'},
+                    {'name': 'size', 'type': 'DecimalField', 'max_digits': 15, 'decimal_places': 2},
+                    {'name': 'price', 'type': 'DecimalField', 'max_digits': 15, 'decimal_places': 5},
+                    {'name': 'side', 'type': 'CharField', 'max_length': 4},
+                    {'name': 'timestamp', 'type': 'DateTimeField'},
+                    {'name': 'platform', 'type': 'CharField', 'max_length': 20},
+                ],
+                'color': '#fafafa'
+            }
+        ],
+        'relationships': [
+            {'from': 'User', 'to': 'BrokerCredentials', 'type': 'OneToMany'},
+            {'from': 'User', 'to': 'Strategy', 'type': 'OneToMany'},
+            {'from': 'User', 'to': 'Position', 'type': 'OneToMany'},
+            {'from': 'User', 'to': 'Trade', 'type': 'OneToMany'},
+            {'from': 'Asset', 'to': 'AssetTradable', 'type': 'OneToMany'},
+            {'from': 'AssetType', 'to': 'AssetTradable', 'type': 'OneToMany'},
+            {'from': 'Market', 'to': 'AssetTradable', 'type': 'OneToMany'},
+            {'from': 'AssetTradable', 'to': 'Position', 'type': 'OneToMany'},
+            {'from': 'AssetTradable', 'to': 'Trade', 'type': 'OneToMany'},
+        ]
+    }
+    
+    return render(request, 'trading_app/database_schema.html', {
+        'schema_data': json.dumps(schema_data, cls=DjangoJSONEncoder),
+    })
+
+
+def database_schema_manual(request):
+    """Vue pour afficher le schéma manuel de la base de données"""
+    return render(request, 'trading_app/database_schema_manual.html')
+
+
+@login_required
+@csrf_exempt
+def sync_all_assets(request):
+    """Synchronise tous les actifs depuis tous les brokers configurés"""
+    try:
+        broker_service = BrokerService(request.user)
+        result = broker_service.sync_all_assets_from_all_brokers()
+        
+        if result['success']:
+            return JsonResponse({
+                'success': True,
+                'message': result['message'],
+                'total_saved': result['total_saved'],
+                'total_updated': result['total_updated'],
+                'broker_results': result['broker_results']
+            })
+        else:
+            return JsonResponse({'success': False, 'error': result.get('error', 'Erreur inconnue')}, status=400)
+            
+    except Exception as e:
+        logger.error(f"Erreur lors de la synchronisation des actifs: {str(e)}")
+        return JsonResponse({'success': False, 'error': f"Erreur lors de la synchronisation: {str(e)}"}, status=500)
+
+
+@login_required
+@csrf_exempt
+def sync_broker_assets(request, broker_id):
+    """Synchronise les actifs depuis un broker spécifique"""
+    try:
+        broker_creds = get_object_or_404(BrokerCredentials, id=broker_id, user=request.user, is_active=True)
+        broker_service = BrokerService(request.user)
+        
+        if broker_creds.broker_type == 'saxo':
+            result = broker_service.sync_all_assets_from_saxo(broker_creds)
+        elif broker_creds.broker_type == 'binance':
+            result = broker_service.sync_all_assets_from_binance(broker_creds)
+        else:
+            return JsonResponse({'success': False, 'error': f'Broker {broker_creds.broker_type} non supporté'}, status=400)
+        
+        if result['success']:
+            return JsonResponse({
+                'success': True,
+                'message': result['message'],
+                'saved_count': result['saved_count'],
+                'updated_count': result['updated_count'],
+                'total_processed': result['total_processed']
+            })
+        else:
+            return JsonResponse({'success': False, 'error': result.get('error', 'Erreur inconnue')}, status=400)
+            
+    except Exception as e:
+        logger.error(f"Erreur lors de la synchronisation des actifs du broker {broker_id}: {str(e)}")
+        return JsonResponse({'success': False, 'error': f"Erreur lors de la synchronisation: {str(e)}"}, status=500)
+
+
+@login_required
+def search_all_assets(request):
+    """Recherche d'actifs pour l'autocomplétion"""
+    try:
+        query = request.GET.get('q', '').strip()
+        platform = request.GET.get('platform', '').strip()
+        
+        print(f"🔍 Recherche: query='{query}', platform='{platform}'")
+        
+        if not query or len(query) < 2:
+            print("❌ Query trop courte ou vide")
+            return JsonResponse({'results': []})
+        
+        # Construire la requête
+        queryset = AllAssets.objects.filter(is_tradable=True)
+        print(f"📊 Actifs tradables de base: {queryset.count()}")
+        
+        # Filtrer par plateforme si spécifiée
+        if platform:
+            queryset = queryset.filter(platform=platform)
+            print(f"📊 Après filtre plateforme '{platform}': {queryset.count()}")
+        
+        # Recherche dans le symbole et le nom
+        queryset = queryset.filter(
+            Q(symbol__icontains=query) | 
+            Q(name__icontains=query)
+        )
+        print(f"📊 Après recherche '{query}': {queryset.count()}")
+        
+        # Limiter les résultats
+        results = queryset[:20].values('symbol', 'name', 'platform', 'asset_type', 'market')
+        
+        # Formater les résultats pour l'autocomplétion
+        formatted_results = []
+        for asset in results:
+            formatted_results.append({
+                'id': asset['symbol'],
+                'text': f"{asset['symbol']} - {asset['name']} ({asset['platform'].upper()})",
+                'symbol': asset['symbol'],
+                'name': asset['name'],
+                'platform': asset['platform'],
+                'asset_type': asset['asset_type'],
+                'market': asset['market']
+            })
+        
+        print(f"✅ Retourne {len(formatted_results)} résultats")
+        return JsonResponse({'results': formatted_results})
+        
+    except Exception as e:
+        print(f"❌ Erreur: {str(e)}")
+        logger.error(f"Erreur lors de la recherche d'actifs: {str(e)}")
+        return JsonResponse({'results': [], 'error': str(e)})
 

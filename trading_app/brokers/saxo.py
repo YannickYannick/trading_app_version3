@@ -386,6 +386,41 @@ class SaxoBroker(BrokerBase):
             print(f"Erreur récupération actifs Saxo: {e}")
             return []
     
+    def get_all_assets(self, limit: int = 1000) -> List[Dict]:
+        """Récupère tous les actifs disponibles depuis Saxo"""
+        try:
+            if not self.access_token:
+                print("❌ Pas de token d'accès Saxo")
+                return []
+            
+            url = f"{self.base_url}/ref/v1/instruments/details"
+            
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/json"
+            }
+            
+            params = {
+                "$top": limit,
+                "AssetTypes": "Stock"  # Pour commencer avec les actions, peut être étendu
+            }
+            
+            print(f"🔄 Récupération des actifs Saxo (limite: {limit})")
+            response = requests.get(url, headers=headers, params=params)
+            
+            if response.status_code == 200:
+                data = response.json()
+                assets = data.get("Data", [])
+                print(f"✅ {len(assets)} actifs récupérés depuis Saxo")
+                return assets
+            else:
+                print(f"❌ Erreur API Saxo: {response.status_code} - {response.text}")
+                return []
+                
+        except Exception as e:
+            print(f"❌ Erreur lors de la récupération des actifs Saxo: {str(e)}")
+            return []
+    
     def get_asset_price(self, symbol: str, uic: Optional[int] = None, 
                        asset_type: str = "Stock") -> Optional[Decimal]:
         """Récupérer le prix d'un actif"""
