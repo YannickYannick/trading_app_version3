@@ -5,29 +5,167 @@
 
 {% block content %}
 <h1>Assets - Tableau dynamique</h1>
+
+<!-- Bouton pour configurer les colonnes -->
+<div class="mb-3">
+    <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#columnSelectorModal">
+        <i class="fas fa-cog"></i> Configurer les colonnes
+    </button>
+</div>
+
 <button id="action-button">Lancer une action (fetch)</button>
 <div id="asset-table"></div>
 <button id="add-row">Ajouter une ligne</button>
 <button id="delete-row">Supprimer la dernière ligne</button>
 <button id="update-row">Modifier la première ligne</button>
 
+<!-- Modal pour sélectionner les colonnes -->
+<div class="modal fade" id="columnSelectorModal" tabindex="-1" aria-labelledby="columnSelectorModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="columnSelectorModalLabel">
+                    <i class="fas fa-columns"></i> Sélectionner les colonnes à afficher
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Colonnes disponibles :</h6>
+                        <div id="availableColumns" class="border p-3" style="height: 300px; overflow-y: auto;">
+                            <!-- Les colonnes disponibles seront ajoutées ici dynamiquement -->
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Colonnes affichées :</h6>
+                        <div id="selectedColumns" class="border p-3" style="height: 300px; overflow-y: auto;">
+                            <!-- Les colonnes sélectionnées seront ajoutées ici dynamiquement -->
+                        </div>
+                    </div>
+                </div>
+                <div class="row mt-3">
+                    <div class="col-12 text-center">
+                        <button type="button" class="btn btn-primary" id="applyColumns">
+                            <i class="fas fa-check"></i> Appliquer
+                        </button>
+                        <button type="button" class="btn btn-secondary" id="resetColumns">
+                            <i class="fas fa-undo"></i> Réinitialiser
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Tabulator CSS & JS -->
 <link href="https://cdnjs.cloudflare.com/ajax/libs/tabulator/5.0.3/css/tabulator.min.css" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tabulator/5.0.3/js/tabulator.min.js"></script>
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
 
 <script>
     // Données injectées depuis Django
-    // version précédente : var tabledata = {{ data_assets|default:"[]"|safe }};
     var tabledata = JSON.parse('{{ data_assets|default:"[]"|escapejs }}');
 
-    // Colonnes dynamiques selon les clés du premier asset
-    var columns = [];
+    // Définition de toutes les colonnes disponibles (basées sur les données)
+    var allColumns = [];
     if (tabledata.length > 0) {
         Object.keys(tabledata[0]).forEach(function(key) {
-            columns.push({ title: key, field: key, editor: "input" });
+            allColumns.push({ 
+                title: key, 
+                field: key, 
+                editor: "input",
+                headerFilter: "input"
+            });
         });
-        columns.push({ title: "Action", formatter: buttonFormatter, headerSort: false });
+        // Ajouter la colonne Action
+        allColumns.push({ 
+            title: "Action", 
+            formatter: buttonFormatter, 
+            headerSort: false
+        });
+    }
+    
+    // Colonnes par défaut (les plus importantes)
+    var defaultColumns = [];
+    if (tabledata.length > 0) {
+        // Prendre les 5 premières colonnes comme défaut
+        var keys = Object.keys(tabledata[0]);
+        defaultColumns = keys.slice(0, 5);
+    }
+    
+    // Fonction pour sauvegarder les colonnes sélectionnées
+    function saveSelectedColumns(columns) {
+        localStorage.setItem('asset_tabulator_selected_columns', JSON.stringify(columns));
+    }
+    
+    // Fonction pour charger les colonnes sélectionnées
+    function loadSelectedColumns() {
+        var saved = localStorage.getItem('asset_tabulator_selected_columns');
+        if (saved) {
+            try {
+                return JSON.parse(saved);
+            } catch (e) {
+                console.log('Erreur lors du chargement des colonnes sauvegardées:', e);
+            }
+        }
+        return [...defaultColumns];
+    }
+    
+    // Colonnes actuellement sélectionnées (chargées depuis localStorage)
+    var selectedColumns = loadSelectedColumns();
+    
+    // Fonction pour obtenir les colonnes à afficher
+    function getVisibleColumns() {
+        var visibleCols = allColumns.filter(col => selectedColumns.includes(col.field));
+        // Toujours inclure la colonne Action
+        if (!visibleCols.find(col => col.title === "Action")) {
+            visibleCols.push(allColumns.find(col => col.title === "Action"));
+        }
+        return visibleCols;
+    }
+    
+    // Fonction pour initialiser le sélecteur de colonnes
+    function initColumnSelector() {
+        const availableDiv = document.getElementById('availableColumns');
+        const selectedDiv = document.getElementById('selectedColumns');
+        
+        // Vider les conteneurs
+        availableDiv.innerHTML = '';
+        selectedDiv.innerHTML = '';
+        
+        // Ajouter toutes les colonnes disponibles (sauf Action)
+        allColumns.forEach(col => {
+            if (col.title === "Action") return; // Ignorer la colonne Action
+            
+            const isSelected = selectedColumns.includes(col.field);
+            const container = isSelected ? selectedDiv : availableDiv;
+            
+            const columnItem = document.createElement('div');
+            columnItem.className = 'column-item mb-2 p-2 border rounded cursor-pointer';
+            columnItem.style.cursor = 'pointer';
+            columnItem.innerHTML = `
+                <div class="d-flex justify-content-between align-items-center">
+                    <span>${col.title}</span>
+                    <i class="fas fa-${isSelected ? 'minus' : 'plus'} text-${isSelected ? 'danger' : 'success'}"></i>
+                </div>
+            `;
+            
+            columnItem.addEventListener('click', function() {
+                if (isSelected) {
+                    // Retirer de la sélection
+                    selectedColumns = selectedColumns.filter(field => field !== col.field);
+                } else {
+                    // Ajouter à la sélection
+                    selectedColumns.push(col.field);
+                }
+                initColumnSelector();
+            });
+            
+            container.appendChild(columnItem);
+        });
     }
 
     // Formatter pour le bouton AJAX
@@ -39,7 +177,7 @@
             const csrftoken = getCookie('csrftoken');
             console.log('CSRF token:', csrftoken);
             $.ajax({
-                url: '/assets/save/',  // <-- nouvelle URL
+                url: '/assets/save/',
                 type: 'POST',
                 data: rowData,
                 headers: {'X-CSRFToken': csrftoken },
@@ -71,19 +209,46 @@
         return cookieValue;
     }
 
-    // Création du tableau Tabulator
+    // Création du tableau Tabulator avec les colonnes chargées
     var table = new Tabulator("#asset-table", {
         height: "400px",
-        layout: "fitColumns",
+        layout: "fitDataFill",
         reactiveData: true,
         data: tabledata,
-        columns: columns
+        columns: getVisibleColumns()
+    });
+    
+    // Initialiser le sélecteur de colonnes après la création de la table
+    initColumnSelector();
+    
+    // Appliquer les changements de colonnes
+    document.getElementById('applyColumns').addEventListener('click', function() {
+        table.setColumns(getVisibleColumns());
+        saveSelectedColumns(selectedColumns);
+        $('#columnSelectorModal').modal('hide');
+        // Forcer le redessinage de la table
+        table.redraw(true);
+    });
+    
+    // Réinitialiser les colonnes
+    document.getElementById('resetColumns').addEventListener('click', function() {
+        selectedColumns = [...defaultColumns];
+        saveSelectedColumns(selectedColumns);
+        table.setColumns(getVisibleColumns());
+        initColumnSelector();
+        // Forcer le redessinage de la table
+        table.redraw(true);
+    });
+    
+    // Réinitialiser le sélecteur quand le modal s'ouvre
+    $('#columnSelectorModal').on('show.bs.modal', function () {
+        initColumnSelector();
     });
 
     // Boutons dynamiques
     document.getElementById("add-row").addEventListener("click", function(){
         var newRow = {};
-        columns.forEach(function(col) { if(col.field) newRow[col.field] = ""; });
+        getVisibleColumns().forEach(function(col) { if(col.field) newRow[col.field] = ""; });
         tabledata.push(newRow);
         table.replaceData(tabledata);
     });
@@ -116,4 +281,13 @@
         .catch(error => console.error('Error:', error));
     });
 </script>
+
+<style>
+.column-item:hover {
+    background-color: #f8f9fa;
+}
+.cursor-pointer {
+    cursor: pointer;
+}
+</style>
 {% endblock %} 

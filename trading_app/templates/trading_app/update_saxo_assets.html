@@ -1,0 +1,121 @@
+{% extends 'base.html' %}
+
+{% block title %}Mise à jour AssetTradable Saxo{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1><i class="fas fa-sync"></i> Mise à jour AssetTradable Saxo</h1>
+    
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Mettre à jour tous les AssetTradable Saxo</h5>
+                </div>
+                <div class="card-body">
+                    <p>Cette action va récupérer les noms et symboles corrects depuis l'API Saxo pour tous les AssetTradable Saxo.</p>
+                    <button id="update-all-btn" class="btn btn-primary">
+                        <i class="fas fa-sync"></i> Mettre à jour tous les AssetTradable Saxo
+                    </button>
+                    <div id="update-all-result" class="mt-3"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Mettre à jour un AssetTradable spécifique</h5>
+                </div>
+                <div class="card-body">
+                    <form id="update-single-form">
+                        <div class="form-group">
+                            <label for="asset-tradable-id">ID de l'AssetTradable :</label>
+                            <input type="number" class="form-control" id="asset-tradable-id" required>
+                        </div>
+                        <button type="submit" class="btn btn-warning">
+                            <i class="fas fa-edit"></i> Mettre à jour cet AssetTradable
+                        </button>
+                    </form>
+                    <div id="update-single-result" class="mt-3"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.getElementById('update-all-btn').addEventListener('click', function() {
+    const btn = this;
+    const resultDiv = document.getElementById('update-all-result');
+    
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Mise à jour en cours...';
+    resultDiv.innerHTML = '<div class="alert alert-info">Mise à jour en cours...</div>';
+    
+    fetch('/asset-tradable/update-all-saxo/', {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': getCookie('csrftoken')
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            resultDiv.innerHTML = `<div class="alert alert-success">${data.message}</div>`;
+        } else {
+            resultDiv.innerHTML = `<div class="alert alert-danger">${data.message}</div>`;
+        }
+    })
+    .catch(error => {
+        resultDiv.innerHTML = `<div class="alert alert-danger">Erreur: ${error}</div>`;
+    })
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-sync"></i> Mettre à jour tous les AssetTradable Saxo';
+    });
+});
+
+document.getElementById('update-single-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const assetTradableId = document.getElementById('asset-tradable-id').value;
+    const resultDiv = document.getElementById('update-single-result');
+    
+    resultDiv.innerHTML = '<div class="alert alert-info">Mise à jour en cours...</div>';
+    
+    fetch(`/asset-tradable/${assetTradableId}/update-saxo/`, {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': getCookie('csrftoken')
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            resultDiv.innerHTML = `<div class="alert alert-success">${data.message}</div>`;
+        } else {
+            resultDiv.innerHTML = `<div class="alert alert-danger">${data.message}</div>`;
+        }
+    })
+    .catch(error => {
+        resultDiv.innerHTML = `<div class="alert alert-danger">Erreur: ${error}</div>`;
+    });
+});
+
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+</script>
+{% endblock %} 

@@ -19,8 +19,17 @@ class SaxoBroker(BrokerBase):
         self.client_id = credentials.get('client_id')
         self.client_secret = credentials.get('client_secret')
         self.redirect_uri = credentials.get('redirect_uri', 'http://localhost:8080/callback')
-        self.base_url = "https://gateway.saxobank.com/sim/openapi"  # ou "https://gateway.saxobank.com/openapi" pour prod
-        self.auth_url = "https://sim.logonvalidation.net"  # ou "https://logonvalidation.net" pour prod
+        
+        # Déterminer l'environnement (live ou simulation)
+        environment = credentials.get('environment', 'simulation')
+        
+        # Configurer les URLs selon l'environnement
+        if environment == 'live':
+            self.base_url = "https://gateway.saxobank.com/openapi"
+            self.auth_url = "https://logonvalidation.net"
+        else:  # simulation
+            self.base_url = "https://gateway.saxobank.com/sim/openapi"
+            self.auth_url = "https://sim.logonvalidation.net"
         
         # Récupérer les tokens stockés s'ils existent
         self.access_token = credentials.get('access_token')
@@ -51,6 +60,11 @@ class SaxoBroker(BrokerBase):
             print("🔑 Token 24h détecté - pas de refresh automatique")
             # Pour un token 24h, on ne tente jamais le refresh
             # On vérifie juste si le token existe
+            return bool(self.access_token)
+        
+        # Pour Saxo Live, éviter le refresh automatique si on a déjà un token
+        if 'sim' not in self.base_url and self.access_token:
+            print("🔑 Saxo Live - Token existant, pas de refresh automatique")
             return bool(self.access_token)
         
         # Si on a un vrai refresh token (différent de l'access token), essayer de le rafraîchir
@@ -166,15 +180,16 @@ class SaxoBroker(BrokerBase):
                         amount = base.get("Amount", 0)
                         open_price = base.get("OpenPrice", 0)
                         
-                        # Récupérer le nom de l'instrument
+                        # Récupérer le nom et le symbole de l'instrument
                         instrument_name = self._get_instrument_name(uic, asset_type)
+                        instrument_symbol = self._get_instrument_symbol(uic, asset_type)
                         
-                        # Créer un symbole unique pour éviter les doublons
-                        unique_symbol = f"{uic}_{i}" if uic else f"Unknown_{i}"
+                        # Utiliser le vrai symbole ou l'UIC comme fallback
+                        symbol = instrument_symbol if instrument_symbol else str(uic)
                         
                         # Formater selon le format attendu par le service
                         formatted_position = {
-                            'symbol': unique_symbol,
+                            'symbol': symbol,
                             'name': instrument_name,
                             'type': asset_type,
                             'market': 'Saxo',
@@ -209,15 +224,11 @@ class SaxoBroker(BrokerBase):
             return []
 
     def get_trades(self, limit: int = 100) -> List[Dict[str, Any]]:
-        """Récupère les trades depuis Saxo Bank"""
-        print("🔍 Récupération des trades Saxo...")
+        """Récupère l'historique des positions fermées depuis Saxo Bank"""
+        print("🔍 Récupération de l'historique des positions fermées Saxo...")
         
         if not self.authenticate():
             print("❌ Échec de l'authentification Saxo")
-            return []
-        
-        if not self.account_key:
-            print("❌ Pas de AccountKey disponible")
             return []
         
         try:
@@ -226,51 +237,109 @@ class SaxoBroker(BrokerBase):
                 "Content-Type": "application/json"
             }
             
-            # Utiliser l'endpoint correct pour les trades
-            url = f"{self.base_url}/port/v1/accounts/{self.account_key}/trades"
-            params = {"$top": limit}
+            # Récupérer les informations du compte et du client
+            print("🔑 Récupération des informations du compte...")
             
-            print(f"🌐 Appel API: {url}")
-            print(f"📋 Headers: {headers}")
+            # Récupérer les comptes
+            accounts_url = f"{self.base_url}/port/v1/accounts/me"
+            accounts_response = requests.get(accounts_url, headers=headers)
+            
+            if accounts_response.status_code != 200:
+                print(f"❌ Erreur récupération comptes: {accounts_response.status_code}")
+                return []
+            
+            accounts_data = accounts_response.json()
+            accounts = accounts_data.get("Data", [])
+            
+            if not accounts:
+                print("❌ Aucun compte trouvé")
+                return []
+            
+            account_id = accounts[0]["AccountId"]
+            account_key = accounts[0]["AccountKey"]
+            
+            # Récupérer les informations du client
+            clients_url = f"{self.base_url}/port/v1/clients/me"
+            clients_response = requests.get(clients_url, headers=headers)
+            
+            if clients_response.status_code != 200:
+                print(f"❌ Erreur récupération client: {clients_response.status_code}")
+                return []
+            
+            clients_data = clients_response.json()
+            client_key = clients_data["ClientKey"]
+            
+            print(f"🔑 Account ID: {account_id}")
+            print(f"🔑 Client Key: {client_key}")
+            print(f"🔑 Account Key: {account_key}")
+            
+            # Configuration de la période de recherche (30 derniers jours)
+            from datetime import datetime, timezone, timedelta
+            
+            end_date = datetime.now(timezone.utc).date()
+            start_date = (end_date - timedelta(days=30)).isoformat()
+            end_date = end_date.isoformat()
+            
+            # Endpoint historique des positions fermées
+            url = f"{self.base_url}/hist/v3/positions/{client_key}"
+            
+            params = {
+                "AccountKey": account_key,
+                "FromDate": start_date,
+                "ToDate": end_date,
+                "$top": limit
+            }
+            
+            print(f"🌐 Appel API historique: {url}")
             print(f"📋 Params: {params}")
             
             response = requests.get(url, headers=headers, params=params)
             
             print(f"📊 Status Code: {response.status_code}")
-            print(f"📊 Response: {response.text[:500]}...")  # Afficher les 500 premiers caractères
             
             if response.status_code == 200:
                 data = response.json()
-                trades = data.get("Data", [])
+                positions = data.get('Data', [])
                 
-                print(f"📊 {len(trades)} trades trouvés dans la réponse")
+                print(f"📊 {len(positions)} positions fermées trouvées")
                 
                 formatted_trades = []
-                for trade in trades:
+                for pos in positions:
                     try:
-                        print(f"🔍 Traitement trade: {trade}")
+                        print(f"🔍 Traitement position fermée: {pos}")
                         
-                        # Extraire les informations du trade
-                        uic = trade.get("Uic")
-                        asset_type = trade.get("AssetType", "Stock")
-                        amount = trade.get("Amount", 0)
-                        price = trade.get("Price", 0)
-                        side = trade.get("BuySell", "Buy")
-                        timestamp = trade.get("TradeDateTime")
+                        # Extraire les informations de la position fermée
+                        instrument_symbol = pos.get('InstrumentSymbol', 'Unknown')
+                        asset_type = pos.get('ClosingAssetType', 'Stock')
+                        long_short = pos.get('LongShort', {})
+                        direction = long_short.get('PresentationValue', 'Unknown') if long_short else 'Unknown'
+                        amount = abs(pos.get('Amount', 0))
+                        price_open = pos.get('PriceOpen', 0)
+                        price_close = pos.get('PriceClose', 0)
+                        opening_date = pos.get('OpeningTradeDate', '')
+                        closing_date = pos.get('ClosingTradeDate', '')
+                        profit_loss = pos.get('ProfitLoss', 0)
+                        profit_loss_ratio = pos.get('ProfitLossAccountValueFraction', 0)
                         
-                        # Récupérer le nom de l'instrument
-                        instrument_name = self._get_instrument_name(uic, asset_type)
+                        # Déterminer le côté (BUY/SELL) basé sur la direction
+                        side = 'BUY' if direction == 'Long' else 'SELL'
                         
                         # Formater selon le format attendu
                         formatted_trade = {
-                            'symbol': str(uic) if uic else 'Unknown',
-                            'name': instrument_name,
+                            'symbol': instrument_symbol,
+                            'name': instrument_symbol,  # On pourrait récupérer le nom via l'API si nécessaire
                             'type': asset_type,
                             'market': 'Saxo',
                             'size': float(amount) if amount else 0.0,
-                            'price': float(price) if price else 0.0,
-                            'side': 'BUY' if side == 'Buy' else 'SELL',
-                            'timestamp': timestamp,
+                            'price': float(price_close) if price_close else 0.0,
+                            'side': side,
+                            'timestamp': closing_date,
+                            'opening_date': opening_date,
+                            'opening_price': float(price_open) if price_open else 0.0,
+                            'closing_price': float(price_close) if price_close else 0.0,
+                            'profit_loss': float(profit_loss) if profit_loss else 0.0,
+                            'profit_loss_ratio': float(profit_loss_ratio) if profit_loss_ratio else 0.0,
+                            'direction': direction,
                             'sector': 'Unknown',
                             'industry': 'Unknown',
                             'market_cap': 0.0,
@@ -278,22 +347,22 @@ class SaxoBroker(BrokerBase):
                         }
                         
                         formatted_trades.append(formatted_trade)
-                        print(f"✅ Trade formaté: {formatted_trade['symbol']} - {formatted_trade['name']}")
+                        print(f"✅ Position fermée formatée: {formatted_trade['symbol']} - {formatted_trade['direction']} - P&L: {formatted_trade['profit_loss']}")
                         
                     except Exception as e:
-                        print(f"❌ Erreur formatage trade: {e}")
-                        print(f"❌ Trade data: {trade}")
+                        print(f"❌ Erreur formatage position fermée: {e}")
+                        print(f"❌ Position data: {pos}")
                         continue
                 
-                print(f"📊 {len(formatted_trades)} trades formatés")
+                print(f"📊 {len(formatted_trades)} positions fermées formatées")
                 return formatted_trades
                 
             else:
-                print(f"❌ Erreur API Saxo: {response.status_code} - {response.text}")
+                print(f"❌ Erreur API historique Saxo: {response.status_code} - {response.text}")
                 return []
                 
         except Exception as e:
-            print(f"❌ Erreur récupération trades Saxo: {e}")
+            print(f"❌ Erreur récupération historique Saxo: {e}")
             return []
     
     def get_assets(self, asset_type: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -417,6 +486,44 @@ class SaxoBroker(BrokerBase):
         except Exception as e:
             return {"error": f"Erreur statut ordre Saxo: {e}"}
     
+    def get_balance(self):
+        """Retourne le solde cash du compte Saxo"""
+        print(f"🔍 Récupération solde Saxo - Environnement: {'LIVE' if 'sim' not in self.base_url else 'SIMULATION'}")
+        print(f"🔍 Base URL: {self.base_url}")
+        
+        if not self.authenticate():
+            print("❌ Échec de l'authentification Saxo")
+            return None
+        
+        print(f"✅ Authentification réussie - Token: {self.access_token[:20]}...")
+        
+        url = f"{self.base_url}/port/v1/balances/me"
+        headers = {
+            "Authorization": f"Bearer {self.access_token}",
+            "Accept": "application/json"
+        }
+        
+        print(f"🌐 Appel API: {url}")
+        print(f"📋 Headers: {headers}")
+        
+        try:
+            response = requests.get(url, headers=headers)
+            print(f"📊 Status Code: {response.status_code}")
+            
+            if response.status_code == 200:
+                data = response.json()
+                print(f"📊 Réponse: {data}")
+                cash_balance = data.get('CashBalance')
+                print(f"💰 Cash Balance: {cash_balance}")
+                return cash_balance
+            else:
+                print(f"❌ Erreur {response.status_code}: {response.text}")
+                return None
+                
+        except Exception as e:
+            print(f"❌ Erreur récupération solde Saxo: {e}")
+            return None
+    
     def _get_uic_from_symbol(self, symbol: str) -> Optional[int]:
         """Récupérer l'UIC d'un symbole"""
         assets = self.get_assets()
@@ -443,22 +550,60 @@ class SaxoBroker(BrokerBase):
         try:
             headers = {
                 "Authorization": f"Bearer {self.access_token}",
-                "Content-Type": "application/json"
+                "Accept": "application/json"
             }
             
-            url = f"{self.base_url}/ref/v1/instruments/details"
-            params = {"Uic": uic, "AssetType": asset_type}
+            # Utiliser l'endpoint correct pour les détails d'instrument
+            url = f"{self.base_url}/ref/v1/instruments/details/{uic}/{asset_type.lower()}"
             
-            response = requests.get(url, headers=headers, params=params)
+            print(f"🔍 Récupération nom instrument: {url}")
+            response = requests.get(url, headers=headers)
             
             if response.status_code == 200:
                 data = response.json()
-                instruments = data.get("Data", [])
-                if instruments:
-                    return instruments[0].get("Description", f"Unknown {uic}")
-            
-            return f"Unknown {uic}"
+                print(f"📊 Réponse instrument: {data}")
+                
+                description = data.get("Description")
+                symbol = data.get("Symbol")
+                
+                if description:
+                    print(f"✅ Nom trouvé: {description} ({symbol})")
+                    return description
+                else:
+                    print(f"⚠️ Pas de description trouvée pour UIC {uic}")
+                    return f"Unknown {uic}"
+            else:
+                print(f"❌ Erreur API instrument: {response.status_code} - {response.text}")
+                return f"Unknown {uic}"
             
         except Exception as e:
             print(f"❌ Erreur récupération nom instrument: {e}")
-            return f"Unknown {uic}" 
+            return f"Unknown {uic}"
+
+    def _get_instrument_symbol(self, uic: str, asset_type: str = "Stock") -> str:
+        """Récupère le symbole de l'instrument via l'API Saxo"""
+        try:
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+                "Accept": "application/json"
+            }
+            
+            # Utiliser l'endpoint correct pour les détails d'instrument
+            url = f"{self.base_url}/ref/v1/instruments/details/{uic}/{asset_type.lower()}"
+            
+            response = requests.get(url, headers=headers)
+            
+            if response.status_code == 200:
+                data = response.json()
+                symbol = data.get("Symbol")
+                
+                if symbol:
+                    return symbol
+                else:
+                    return str(uic)
+            else:
+                return str(uic)
+            
+        except Exception as e:
+            print(f"❌ Erreur récupération symbole instrument: {e}")
+            return str(uic) 

@@ -60,9 +60,15 @@ class BrokerCredentials(models.Model):
         ('binance', 'Binance'),
     ]
     
+    ENVIRONMENT_CHOICES = [
+        ('live', 'Live Trading'),
+        ('simulation', 'Simulation/Demo'),
+    ]
+    
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     broker_type = models.CharField(max_length=20, choices=BROKER_CHOICES)
     name = models.CharField(max_length=100, help_text="Nom pour identifier cette configuration")
+    environment = models.CharField(max_length=20, choices=ENVIRONMENT_CHOICES, default='simulation', help_text="Environnement de trading (Live ou Simulation)")
     
     # Credentials Saxo
     saxo_client_id = models.CharField(max_length=100, blank=True, null=True)
@@ -97,12 +103,14 @@ class BrokerCredentials(models.Model):
                 'access_token': self.saxo_access_token,
                 'refresh_token': self.saxo_refresh_token,
                 'token_expires_at': self.saxo_token_expires_at,
+                'environment': self.environment,
             }
         elif self.broker_type == 'binance':
             return {
                 'api_key': self.binance_api_key,
                 'api_secret': self.binance_api_secret,
                 'testnet': self.binance_testnet,
+                'environment': self.environment,
             }
         return {}
 

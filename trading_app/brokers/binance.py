@@ -7,7 +7,7 @@ import requests
 import hmac
 import hashlib
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 from decimal import Decimal
 from urllib.parse import urlencode
@@ -174,141 +174,297 @@ class BinanceBroker(BrokerBase):
         except Exception as e:
             print(f"Erreur récupération comptes Binance: {e}")
             return []
-    def get_positions(self):
-        """Récupérer les positions (balances) avec recherche multi-quote (EUR, USDT, BUSD)"""
-        print("\n=== RÉCUPÉRATION DES POSITIONS ===")
+
+    def _make_request(self, method, endpoint, params=None, signed=False):
+        """Fait une requête à l'API Binance"""
+        url = f"{self.base_url}{endpoint}"
+        
+        if signed:
+            params['timestamp'] = int(time.time() * 1000)
+            params['recvWindow'] = 5000
+            query_string = urlencode(params)
+            signature = hmac.new(
+                self.api_secret,
+                query_string.encode('utf-8'),
+                hashlib.sha256
+            ).hexdigest()
+            params['signature'] = signature
+            
+        headers = {'X-MBX-APIKEY': self.api_key}
         
         try:
-            endpoint = "/api/v3/account"
-            timestamp = self._get_server_time()
+            if method == 'GET':
+                response = requests.get(url, params=params, headers=headers)
+            elif method == 'POST':
+                response = requests.post(url, params=params, headers=headers)
+            
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            print(f"❌ Erreur API Binance: {e}")
+            return None
 
-            params = {
-                "timestamp": timestamp,
-                "recvWindow": 5000
-            }
-
-            signed_params = self._sign_payload(params)
-            url = f"{self.base_url}{endpoint}"
-            response = requests.get(url, headers=self._get_headers(), params=signed_params)
-
-            if response.status_code == 200:
-                data = response.json()
-                print(f"✅ Données récupérées: {len(data.get('balances', []))} balances totales")
-
-                positions = []
-                for balance in data.get("balances", []):
-                    free = float(balance.get("free", 0))
-                    locked = float(balance.get("locked", 0))
-                    total = free + locked
-                    asset = balance.get("asset")
-
-                    if total > 0:
-                        print(f"🔎 {asset}: {total} (free: {free}, locked: {locked})")
-
-                        symbol = None
-                        price = None
-                        for quote in ["EUR", "USDT", "BUSD"]:
-                            symbol_try = f"{asset}{quote}"
-                            price = self.get_asset_price(symbol_try)
-                            if price:
-                                symbol = symbol_try
-                                break
-
-                        if symbol and price:
-                            position = {
-                                "symbol": symbol,
-                                "asset": asset,
-                                "size": str(total),
-                                "price": str(price),
-                                "entry_price": str(price)  # Info approximative pour SPOT
-                            }
-                            positions.append(position)
-                            print(f"  → Prix {symbol}: {price}")
-                        else:
-                            print(f"  → Aucun prix trouvé pour {asset} avec EUR/USDT/BUSD")
+    def get_balance(self):
+        """Récupère le solde EUR et USD"""
+        try:
+            account_info = self._make_request('GET', '/api/v3/account', {}, signed=True)
+            if account_info:
+                balances = {}
+                for balance in account_info.get('balances', []):
+                    if balance['asset'] in ['EUR', 'USD']:
+                        free = float(balance['free'])
+                        locked = float(balance['locked'])
+                        total = free + locked
+                        if total > 0:
+                            balances[balance['asset']] = total
+                return balances
+        except Exception as e:
+            print(f"❌ Erreur récupération solde Binance: {e}")
+        return {}
+    
+    def get_positions(self) -> List[Dict[str, Any]]:
+        """Récupérer les positions actuelles (balances non nulles)"""
+        try:
+            account_info = self._make_request('GET', '/api/v3/account', {}, signed=True)
+            if not account_info:
+                return []
+            
+            positions = []
+            for balance in account_info.get('balances', []):
+                free = float(balance['free'])
+                locked = float(balance['locked'])
+                total = free + locked
                 
-                print(f"\n📊 {len(positions)} positions avec prix trouvées")
-                return positions
-            else:
-                print(f"❌ Erreur {response.status_code}: {response.text}")
+                if total > 0:
+                    # Formater les données pour correspondre au template position_tabulator
+                    positions.append({
+                        'id': len(positions) + 1,  # ID temporaire
+                        'asset_name': balance['asset'],
+                        'asset_symbol': balance['asset'],
+                        'underlying_asset_name': balance['asset'],
+                        'size': str(total),
+                        'entry_price': '0.00',  # Pas de prix d'entrée pour les balances
+                        'current_price': '0.00',  # À récupérer si nécessaire
+                        'side': 'BUY',  # Par défaut
+                        'status': 'OPEN',
+                        'pnl': '0.00',  # Pas de PnL pour les balances
+                        'created_at': datetime.now().isoformat(),
+                        'updated_at': datetime.now().isoformat(),
+                        # Données originales Binance
+                        'asset': balance['asset'],
+                        'free': free,
+                        'locked': locked,
+                        'total': total
+                    })
+            
+            print(f"🔍 {len(positions)} positions Binance trouvées")
+            return positions
+        
+        except Exception as e:
+            print(f"❌ Erreur récupération positions Binance: {e}")
+            return []
+
+    def get_traded_symbols(self):
+        """1️⃣ Récupérer tous les symboles tradés (Spot)"""
+        try:
+            account_info = self._make_request('GET', '/api/v3/account', {}, signed=True)
+            if not account_info:
+                return []
+                
+            symbols_traded = set()
+            
+            # Récupérer tous les tickers disponibles
+            all_tickers = self._make_request('GET', '/api/v3/ticker/24hr')
+            if not all_tickers:
                 return []
 
+            # Créer un set de tous les symboles disponibles
+            available_symbols = {ticker['symbol'] for ticker in all_tickers}
+            
+            # Pour chaque balance non-nulle, chercher les paires correspondantes
+            for balance in account_info.get('balances', []):
+                if float(balance['free']) > 0 or float(balance['locked']) > 0:
+                    asset = balance['asset']
+                    # Chercher toutes les paires contenant cet asset
+                    for symbol in available_symbols:
+                        if asset in symbol:
+                            symbols_traded.add(symbol)
+            
+            print(f"🔍 {len(symbols_traded)} symboles tradés trouvés")
+            return list(symbols_traded)
+            
         except Exception as e:
-            print(f"❌ Erreur récupération positions: {e}")
+            print(f"❌ Erreur récupération symboles tradés: {e}")
             return []
     
-    def get_trades(self, limit: int = 100) -> List[Dict[str, Any]]:
-        """Récupère les trades depuis Binance"""
-        print("🔍 Récupération des trades Binance...")
+    def get_all_spot_trades(self):
+        """2️⃣ Récupérer tous les trades Spot"""
+        symbols = self.get_traded_symbols()
+        all_trades = []
         
-        if not self.authenticate():
-            print("❌ Échec de l'authentification Binance")
-            return []
+        print(f"📥 Récupération des trades pour {len(symbols)} symboles...")
         
+        for symbol in symbols:
+            try:
+                params = {'symbol': symbol, 'limit': 1000}
+                trades = self._make_request('GET', '/api/v3/myTrades', params, signed=True)
+                if trades:
+                    all_trades.extend(trades)
+                    print(f"✅ {len(trades)} trades récupérés pour {symbol}")
+                time.sleep(0.1)  # Éviter le rate-limiting
+            except Exception as e:
+                print(f"❌ Erreur trades {symbol}: {e}")
+                continue
+                
+        print(f"📊 Total: {len(all_trades)} trades récupérés")
+        return all_trades
+
+    def get_all_spot_orders(self):
+        """3️⃣ Récupérer tous les orders Spot"""
+        symbols = self.get_traded_symbols()
+        all_orders = []
+        
+        print(f"📥 Récupération des orders pour {len(symbols)} symboles...")
+        
+        for symbol in symbols:
+            try:
+                params = {'symbol': symbol, 'limit': 1000}
+                orders = self._make_request('GET', '/api/v3/allOrders', params, signed=True)
+                if orders:
+                    all_orders.extend(orders)
+                    print(f"✅ {len(orders)} orders récupérés pour {symbol}")
+                time.sleep(0.1)  # Éviter le rate-limiting
+            except Exception as e:
+                print(f"❌ Erreur orders {symbol}: {e}")
+                continue
+                
+        print(f"📊 Total: {len(all_orders)} orders récupérés")
+        return all_orders
+
+    def get_convert_history(self, days=30):
+        """4️⃣ Récupérer l'historique des conversions"""
         try:
-            # Récupérer les ordres pour les symbols spécifiques
-            symbols = ["BTCEUR", "ETHEUR"]  # Ajouter d'autres symbols si nécessaire
+            end_time = int(datetime.now().timestamp() * 1000)
+            start_time = end_time - (days * 24 * 60 * 60 * 1000)
             
-            all_trades = []
+            params = {
+                'startTime': start_time,
+                'endTime': end_time,
+                'limit': 1000
+            }
             
-            for symbol in symbols:
-                try:
-                    print(f"📥 Récupération des ordres pour {symbol}")
-                    
-                    endpoint = "/api/v3/allOrders"
-                    timestamp = self._get_server_time()
-                    params = {
-                        "symbol": symbol,
-                        "timestamp": timestamp,
-                        "recvWindow": 5000,
-                        "limit": limit
-                    }
-                    
-                    signed_params = self._sign_payload(params)
-                    url = f"{self.base_url}{endpoint}"
-                    response = requests.get(url, headers=self._get_headers(), params=signed_params)
-                    
-                    if response.status_code == 200:
-                        orders = response.json()
-                        print(f"✅ {len(orders)} ordres récupérés pour {symbol}")
-                        
-                        for order in orders:
-                            try:
-                                # Formater selon le format attendu
-                                formatted_trade = {
-                                    'symbol': order.get("symbol", symbol),
-                                    'name': order.get("symbol", symbol),  # Binance n'a pas de nom descriptif
-                                    'type': 'Crypto',  # Par défaut pour Binance
-                                    'market': 'Binance',
-                                    'size': float(order.get("executedQty", 0)),
-                                    'price': float(order.get("price", 0)),
-                                    'side': order.get("side", "BUY").upper(),
-                                    'timestamp': self._convert_timestamp(order.get("time")),
-                                    'sector': 'Cryptocurrency',
-                                    'industry': 'Digital Assets',
-                                    'market_cap': 0.0,
-                                    'price_history': 'xxxx'
-                                }
-                                
-                                all_trades.append(formatted_trade)
-                                
-                            except Exception as e:
-                                print(f"❌ Erreur formatage trade {symbol}: {e}")
-                                continue
-                    else:
-                        print(f"❌ Erreur API Binance pour {symbol}: {response.status_code}")
-                        
-                except Exception as e:
-                    print(f"❌ Erreur récupération trades pour {symbol}: {e}")
-                    continue
-            
-            print(f"📊 Total: {len(all_trades)} trades formatés")
-            return all_trades
+            convert_history = self._make_request('GET', '/sapi/v1/convert/trade/history', params, signed=True)
+            if convert_history:
+                print(f"✅ {len(convert_history.get('list', []))} conversions récupérées")
+                return convert_history.get('list', [])
+            return []
             
         except Exception as e:
-            print(f"❌ Erreur récupération trades Binance: {e}")
+            print(f"❌ Erreur convert history: {e}")
             return []
 
+    def get_predefined_symbols_trades(self, symbols_list=None):
+        """Récupérer les trades pour des symboles prédéfinis"""
+        if symbols_list is None:
+            # Symboles par défaut
+            symbols_list = ['ETHEUR', 'BTCEUR', 'ADAEUR', 'AVAXEUR', 'SOLEUR']
+        
+        all_trades = []
+        
+        print(f"📥 Récupération des trades pour {len(symbols_list)} symboles prédéfinis...")
+        
+        for symbol in symbols_list:
+            try:
+                params = {'symbol': symbol, 'limit': 1000}
+                trades = self._make_request('GET', '/api/v3/myTrades', params, signed=True)
+                if trades:
+                    all_trades.extend(trades)
+                    print(f"✅ {len(trades)} trades récupérés pour {symbol}")
+                time.sleep(0.1)  # Éviter le rate-limiting
+            except Exception as e:
+                print(f"❌ Erreur trades {symbol}: {e}")
+                continue
+                
+        print(f"📊 Total: {len(all_trades)} trades récupérés pour symboles prédéfinis")
+        return all_trades
+
+    def get_trades(self, limit=50, mode="auto"):
+        """
+        Récupère l'historique des trades selon le mode choisi
+        mode: "auto" (symboles tradés), "predefined" (symboles prédéfinis), "all" (tout)
+        """
+        print(f"🔍 Récupération des trades Binance (mode: {mode})...")
+        
+        all_trades = []
+        
+        if mode == "auto":
+            # Mode automatique : symboles tradés
+            trades = self.get_all_spot_trades()
+            all_trades.extend(trades)
+            
+        elif mode == "predefined":
+            # Mode symboles prédéfinis
+            trades = self.get_predefined_symbols_trades()
+            all_trades.extend(trades)
+            
+        elif mode == "all":
+            # Mode complet : tout
+            trades = self.get_all_spot_trades()
+            all_trades.extend(trades)
+            
+            orders = self.get_all_spot_orders()
+            all_trades.extend(orders)
+            
+            convert_history = self.get_convert_history(days=365)
+            all_trades.extend(convert_history)
+        
+        # Formater les trades pour l'affichage
+        formatted_trades = []
+        for trade in all_trades[:limit]:
+            try:
+                if 'symbol' in trade:  # Trade ou Order
+                    formatted_trade = {
+                        'broker_name': 'Binance',
+                        'broker_type': 'binance',
+                        'environment': 'live',
+                        'symbol': trade.get('symbol', 'N/A'),
+                        'type': 'Spot',
+                        'direction': 'BUY' if trade.get('isBuyer', trade.get('side')) == 'BUY' else 'SELL',
+                        'size': float(trade.get('qty', trade.get('executedQty', 0))),
+                        'opening_price': float(trade.get('price', 0)),
+                        'closing_price': float(trade.get('price', 0)),
+                        'profit_loss': 0,  # À calculer si nécessaire
+                        'profit_loss_ratio': 0,
+                        'opening_date': datetime.fromtimestamp(trade.get('time', 0) / 1000).strftime('%Y-%m-%d'),
+                        'timestamp': datetime.fromtimestamp(trade.get('time', 0) / 1000).strftime('%Y-%m-%d %H:%M:%S')
+                    }
+                elif 'fromAsset' in trade:  # Convert history
+                    formatted_trade = {
+                        'broker_name': 'Binance',
+                        'broker_type': 'binance',
+                        'environment': 'live',
+                        'symbol': f"{trade.get('fromAsset', 'N/A')}→{trade.get('toAsset', 'N/A')}",
+                        'type': 'Convert',
+                        'direction': trade.get('side', 'N/A'),
+                        'size': float(trade.get('toAmount', 0)),
+                        'opening_price': float(trade.get('ratio', 0)),
+                        'closing_price': float(trade.get('ratio', 0)),
+                        'profit_loss': 0,
+                        'profit_loss_ratio': 0,
+                        'opening_date': datetime.fromtimestamp(trade.get('createTime', 0) / 1000).strftime('%Y-%m-%d'),
+                        'timestamp': datetime.fromtimestamp(trade.get('createTime', 0) / 1000).strftime('%Y-%m-%d %H:%M:%S')
+                    }
+                else:
+                    continue
+                
+                formatted_trades.append(formatted_trade)
+                
+            except Exception as e:
+                print(f"❌ Erreur formatage trade: {e}")
+                continue
+
+        print(f"✅ {len(formatted_trades)} trades formatés")
+        return formatted_trades
     
     def get_assets(self, asset_type: Optional[str] = None) -> List[Dict[str, Any]]:
         """Récupérer les informations sur les paires de trading"""

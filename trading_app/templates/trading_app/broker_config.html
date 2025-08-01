@@ -30,6 +30,19 @@
                            value="{% if broker %}{{ broker.name }}{% endif %}" required>
                     <small class="form-text text-muted">Nom pour identifier cette configuration</small>
                 </div>
+                
+                <div class="form-group">
+                    <label for="environment">Environnement *</label>
+                    <select name="environment" id="environment" class="form-control" required>
+                        <option value="simulation" {% if broker and broker.environment == 'simulation' %}selected{% endif %}>
+                            Simulation/Demo
+                        </option>
+                        <option value="live" {% if broker and broker.environment == 'live' %}selected{% endif %}>
+                            Live Trading
+                        </option>
+                    </select>
+                    <small class="form-text text-muted">Choisissez entre simulation (pour les tests) et live (pour le trading réel)</small>
+                </div>
             </div>
         </div>
         

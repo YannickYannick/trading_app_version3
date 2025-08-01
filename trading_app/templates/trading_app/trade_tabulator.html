@@ -2,22 +2,237 @@
 {% block title %}Trades Tabulator{% endblock %}
 {% block content %}
 <h1>Trades - Tableau dynamique</h1>
+
+<!-- Bouton pour configurer les colonnes -->
+<div class="mb-3">
+    <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#columnSelectorModal">
+        <i class="fas fa-cog"></i> Configurer les colonnes
+    </button>
+    
+    <!-- Boutons pour modes Binance -->
+    <div class="btn-group ms-2" role="group">
+        <button type="button" class="btn btn-outline-primary" id="binanceAuto">
+            <i class="fas fa-magic"></i> Binance Auto
+        </button>
+        <button type="button" class="btn btn-outline-success" id="binancePredefined">
+            <i class="fas fa-list"></i> Binance Prédéfini
+        </button>
+        <button type="button" class="btn btn-outline-warning" id="binanceAll">
+            <i class="fas fa-database"></i> Binance Tout
+        </button>
+    </div>
+</div>
+
 <div id="trade-table"></div>
 <button id="add-row">Ajouter une ligne</button>
 <button id="delete-row">Supprimer la dernière ligne</button>
 <button id="update-row">Modifier la première ligne</button>
 <button id="save-all">Save All</button>
+
+<!-- Modal pour sélectionner les colonnes -->
+<div class="modal fade" id="columnSelectorModal" tabindex="-1" aria-labelledby="columnSelectorModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="columnSelectorModalLabel">
+                    <i class="fas fa-columns"></i> Sélectionner les colonnes à afficher
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Colonnes disponibles :</h6>
+                        <div id="availableColumns" class="border p-3" style="height: 300px; overflow-y: auto;">
+                            <!-- Les colonnes disponibles seront ajoutées ici dynamiquement -->
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Colonnes affichées :</h6>
+                        <div id="selectedColumns" class="border p-3" style="height: 300px; overflow-y: auto;">
+                            <!-- Les colonnes sélectionnées seront ajoutées ici dynamiquement -->
+                        </div>
+                    </div>
+                </div>
+                <div class="row mt-3">
+                    <div class="col-12 text-center">
+                        <button type="button" class="btn btn-primary" id="applyColumns">
+                            <i class="fas fa-check"></i> Appliquer
+                        </button>
+                        <button type="button" class="btn btn-secondary" id="resetColumns">
+                            <i class="fas fa-undo"></i> Réinitialiser
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <link href="https://cdnjs.cloudflare.com/ajax/libs/tabulator/5.0.3/css/tabulator.min.css" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tabulator/5.0.3/js/tabulator.min.js"></script>
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+
 <script>
     var tabledata = JSON.parse('{{ data_trades|default:"[]"|escapejs }}');
-    var columns = [];
-    if (tabledata.length > 0) {
-        Object.keys(tabledata[0]).forEach(function(key) {
-            columns.push({ title: key, field: key, editor: "input" });
+    
+    // Définition de toutes les colonnes disponibles
+    var allColumns = [
+        { title: "Broker", field: "broker_name", headerFilter: "input" },
+        { title: "Environnement", field: "environment", headerFilter: "select", headerFilterParams: { values: ["live", "simulation"] } },
+        { title: "Instrument", field: "symbol", headerFilter: "input" },
+        { title: "Type", field: "type", headerFilter: "input" },
+        { title: "Direction", field: "direction", headerFilter: "select", headerFilterParams: { values: ["Long", "Short"] } },
+        { title: "Taille", field: "size", headerFilter: "input" },
+        { title: "Prix d'ouverture", field: "opening_price", headerFilter: "input", formatter: function(cell) {
+            var value = cell.getValue();
+            if (value && !isNaN(value)) {
+                return parseFloat(value).toFixed(2);
+            }
+            return value;
+        }},
+        { title: "Prix de clôture", field: "closing_price", headerFilter: "input", formatter: function(cell) {
+            var value = cell.getValue();
+            if (value && !isNaN(value)) {
+                return parseFloat(value).toFixed(2);
+            }
+            return value;
+        }},
+        { title: "P&L", field: "profit_loss", headerFilter: "input", formatter: function(cell) {
+            var value = cell.getValue();
+            if (value && !isNaN(value)) {
+                value = parseFloat(value);
+                if (value > 0) {
+                    cell.getElement().style.color = "green";
+                } else if (value < 0) {
+                    cell.getElement().style.color = "red";
+                }
+                return value.toFixed(2);
+            }
+            return value;
+        }},
+        { title: "Ratio P&L", field: "profit_loss_ratio", headerFilter: "input", formatter: function(cell) {
+            var value = cell.getValue();
+            if (value && !isNaN(value)) {
+                value = parseFloat(value) * 100;
+                if (value > 0) {
+                    cell.getElement().style.color = "green";
+                } else if (value < 0) {
+                    cell.getElement().style.color = "red";
+                }
+                return value.toFixed(2) + "%";
+            }
+            return value;
+        }},
+        { title: "Date ouverture", field: "opening_date", headerFilter: "input" },
+        { title: "Date clôture", field: "timestamp", headerFilter: "input" }
+    ];
+    
+    // Colonnes par défaut (les plus importantes)
+    var defaultColumns = ["broker_name", "symbol", "direction", "size", "profit_loss", "timestamp"];
+    
+    // Fonction pour sauvegarder les colonnes sélectionnées
+    function saveSelectedColumns(columns) {
+        localStorage.setItem('trade_tabulator_selected_columns', JSON.stringify(columns));
+    }
+    
+    // Fonction pour charger les colonnes sélectionnées
+    function loadSelectedColumns() {
+        var saved = localStorage.getItem('trade_tabulator_selected_columns');
+        if (saved) {
+            try {
+                return JSON.parse(saved);
+            } catch (e) {
+                console.log('Erreur lors du chargement des colonnes sauvegardées:', e);
+            }
+        }
+        return [...defaultColumns];
+    }
+    
+    // Colonnes actuellement sélectionnées (chargées depuis localStorage)
+    var selectedColumns = loadSelectedColumns();
+    
+    // Fonction pour obtenir les colonnes à afficher
+    function getVisibleColumns() {
+        return allColumns.filter(col => selectedColumns.includes(col.field));
+    }
+    
+    // Fonction pour initialiser le sélecteur de colonnes
+    function initColumnSelector() {
+        const availableDiv = document.getElementById('availableColumns');
+        const selectedDiv = document.getElementById('selectedColumns');
+        
+        // Vider les conteneurs
+        availableDiv.innerHTML = '';
+        selectedDiv.innerHTML = '';
+        
+        // Ajouter toutes les colonnes disponibles
+        allColumns.forEach(col => {
+            const isSelected = selectedColumns.includes(col.field);
+            const container = isSelected ? selectedDiv : availableDiv;
+            
+            const columnItem = document.createElement('div');
+            columnItem.className = 'column-item mb-2 p-2 border rounded cursor-pointer';
+            columnItem.style.cursor = 'pointer';
+            columnItem.innerHTML = `
+                <div class="d-flex justify-content-between align-items-center">
+                    <span>${col.title}</span>
+                    <i class="fas fa-${isSelected ? 'minus' : 'plus'} text-${isSelected ? 'danger' : 'success'}"></i>
+                </div>
+            `;
+            
+            columnItem.addEventListener('click', function() {
+                if (isSelected) {
+                    // Retirer de la sélection
+                    selectedColumns = selectedColumns.filter(field => field !== col.field);
+                } else {
+                    // Ajouter à la sélection
+                    selectedColumns.push(col.field);
+                }
+                initColumnSelector();
+            });
+            
+            container.appendChild(columnItem);
         });
     }
+    
+    // Créer la table avec les colonnes chargées
+    var table = new Tabulator("#trade-table", {
+        height: "400px",
+        layout: "fitDataFill",
+        reactiveData: true,
+        data: tabledata,
+        columns: getVisibleColumns()
+    });
+    
+    // Initialiser le sélecteur de colonnes après la création de la table
+    initColumnSelector();
+    
+    // Appliquer les changements de colonnes
+    document.getElementById('applyColumns').addEventListener('click', function() {
+        table.setColumns(getVisibleColumns());
+        saveSelectedColumns(selectedColumns);
+        $('#columnSelectorModal').modal('hide');
+        // Forcer le redessinage de la table
+        table.redraw(true);
+    });
+    
+    // Réinitialiser les colonnes
+    document.getElementById('resetColumns').addEventListener('click', function() {
+        selectedColumns = [...defaultColumns];
+        saveSelectedColumns(selectedColumns);
+        table.setColumns(getVisibleColumns());
+        initColumnSelector();
+        // Forcer le redessinage de la table
+        table.redraw(true);
+    });
+    
+    // Réinitialiser le sélecteur quand le modal s'ouvre
+    $('#columnSelectorModal').on('show.bs.modal', function () {
+        initColumnSelector();
+    });
+    
     function buttonFormatter(cell) {
         var button = document.createElement("button");
         button.textContent = "Save !";
@@ -40,16 +255,7 @@
         });
         return button;
     }
-    if (columns.length > 0) {
-        columns.push({ title: "Action", formatter: buttonFormatter, headerSort: false });
-    }
-    var table = new Tabulator("#trade-table", {
-        height: "400px",
-        layout: "fitColumns",
-        reactiveData: true,
-        data: tabledata,
-        columns: columns
-    });
+    
     function getCookie(name) {
         let cookieValue = null;
         if (document.cookie && document.cookie !== '') {
@@ -64,19 +270,22 @@
         }
         return cookieValue;
     }
+    
     document.getElementById("add-row").addEventListener("click", function(){
         var newRow = {
             user: 1,   // ID d'un user existant
             asset: 1   // ID d'un asset existant
         };
-        columns.forEach(function(col) { if(col.field && !newRow[col.field]) newRow[col.field] = ""; });
+        getVisibleColumns().forEach(function(col) { if(col.field && !newRow[col.field]) newRow[col.field] = ""; });
         tabledata.push(newRow);
         table.replaceData(tabledata);
     });
+    
     document.getElementById("delete-row").addEventListener("click", function(){
         tabledata.pop();
         table.replaceData(tabledata);
     });
+    
     document.getElementById("update-row").addEventListener("click", function(){
         if(tabledata.length > 0) {
             var firstKey = Object.keys(tabledata[0])[0];
@@ -84,6 +293,7 @@
             table.replaceData(tabledata);
         }
     });
+    
     document.getElementById("save-all").addEventListener("click", function(){
         const csrftoken = getCookie('csrftoken');
         tabledata.forEach(function(rowData) {
@@ -102,5 +312,69 @@
         });
         alert("Toutes les lignes ont été envoyées pour sauvegarde.");
     });
+    
+    // Gestion des boutons Binance
+    document.getElementById("binanceAuto").addEventListener("click", function(){
+        loadBinanceTrades("auto");
+    });
+    
+    document.getElementById("binancePredefined").addEventListener("click", function(){
+        loadBinanceTrades("predefined");
+    });
+    
+    document.getElementById("binanceAll").addEventListener("click", function(){
+        loadBinanceTrades("all");
+    });
+    
+    function loadBinanceTrades(mode) {
+        const csrftoken = getCookie('csrftoken');
+        
+        // Afficher un indicateur de chargement
+        const button = event.target;
+        const originalText = button.innerHTML;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Chargement...';
+        button.disabled = true;
+        
+        $.ajax({
+            url: '/trades/binance/',
+            type: 'POST',
+            data: JSON.stringify({ mode: mode }),
+            contentType: 'application/json',
+            headers: {'X-CSRFToken': csrftoken },
+            success: function(response) {
+                if (response.success) {
+                    // Remplacer les données de la table
+                    tabledata = response.trades;
+                    table.replaceData(tabledata);
+                    
+                    if (response.saved_count > 0) {
+                        alert(`✅ ${response.saved_count} nouveaux trades Binance (${mode}) ajoutés !\n📊 ${response.trades.length} trades affichés au total.\n\n${response.message}`);
+                    } else {
+                        alert(`ℹ️ Aucun nouveau trade trouvé pour Binance (${mode}).\n📊 ${response.trades.length} trades affichés au total.`);
+                    }
+                } else {
+                    alert("❌ Erreur lors du chargement des trades Binance: " + response.error);
+                }
+            },
+            error: function(xhr) {
+                console.error("Erreur AJAX:", xhr);
+                alert("❌ Erreur lors du chargement des trades Binance");
+            },
+            complete: function() {
+                // Restaurer le bouton
+                button.innerHTML = originalText;
+                button.disabled = false;
+            }
+        });
+    }
 </script>
+
+<style>
+.column-item:hover {
+    background-color: #f8f9fa;
+}
+.cursor-pointer {
+    cursor: pointer;
+}
+</style>
 {% endblock %}
