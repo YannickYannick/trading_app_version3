@@ -13,18 +13,28 @@
     </button>
 </div>
 
-<button id="action-button">Lancer une action (fetch)</button>
+<!-- Boutons d'action -->
+<div class="mb-3">
+    <button id="action-button" class="btn btn-outline-primary">Lancer une action (fetch)</button>
+    <button id="add-row" class="btn btn-success">Ajouter une ligne</button>
+    <button id="delete-row" class="btn btn-danger">Supprimer la dernière ligne</button>
+    <button id="update-row" class="btn btn-warning">Modifier la première ligne</button>
+    <button id="update-all-assets" class="btn btn-info">
+        <i class="fas fa-sync-alt"></i> Mettre à jour les assets
+    </button>
+    <button id="add-asset" class="btn btn-primary">
+        <i class="fas fa-plus"></i> Ajouter un Asset
+    </button>
+</div>
+
 <div id="asset-table"></div>
-<button id="add-row">Ajouter une ligne</button>
-<button id="delete-row">Supprimer la dernière ligne</button>
-<button id="update-row">Modifier la première ligne</button>
 
 <!-- Graphiques en camembert -->
 <div class="row mt-4">
     <div class="col-md-6">
         <div class="card">
             <div class="card-header">
-                <h5><i class="fas fa-chart-pie"></i> Répartition par Secteur</h5>
+                <h5><i class="fas fa-chart-pie"></i> Répartition par Secteur (Valeur)</h5>
             </div>
             <div class="card-body">
                 <canvas id="sectorChart" width="400" height="400"></canvas>
@@ -34,10 +44,144 @@
     <div class="col-md-6">
         <div class="card">
             <div class="card-header">
-                <h5><i class="fas fa-chart-pie"></i> Répartition par Industrie</h5>
+                <h5><i class="fas fa-chart-pie"></i> Répartition par Industrie (Valeur)</h5>
             </div>
             <div class="card-body">
                 <canvas id="industryChart" width="400" height="400"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal pour ajouter un Asset -->
+<div class="modal fade" id="addAssetModal" tabindex="-1" aria-labelledby="addAssetModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="addAssetModalLabel">
+                    <i class="fas fa-plus"></i> Ajouter un Asset
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="addAssetForm">
+                    <div class="mb-3">
+                        <label for="assetSymbol" class="form-label">Symbole *</label>
+                        <input type="text" class="form-control" id="assetSymbol" name="symbol" required 
+                               placeholder="Ex: AAPL, BTC, GOOGL" autocomplete="off">
+                        <div id="autocompleteResults" class="list-group mt-2" style="display: none; max-height: 200px; overflow-y: auto;"></div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="assetName" class="form-label">Nom</label>
+                        <input type="text" class="form-control" id="assetName" name="name" 
+                               placeholder="Nom de l'asset (optionnel)">
+                    </div>
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i> 
+                        <strong>Info :</strong> Si le symbole n'est pas trouvé dans AllAssets, une synchronisation automatique avec Yahoo Finance/CoinGecko sera tentée lors de l'enregistrement.
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
+                <button type="button" class="btn btn-primary" id="saveAsset">
+                    <i class="fas fa-save"></i> Enregistrer
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal pour le graphique des prix -->
+<div class="modal fade" id="priceChartModal" tabindex="-1" aria-labelledby="priceChartModalLabel" aria-describedby="priceChartModalDescription" role="dialog">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="priceChartModalLabel">
+                    <i class="fas fa-chart-line"></i> Historique des prix - <span id="chartAssetName">Asset</span>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer le graphique"></button>
+            </div>
+            <div class="modal-body" id="priceChartModalDescription">
+                <!-- Contrôles du graphique -->
+                <div class="row mb-3">
+                    <div class="col-md-4">
+                        <label for="chartAssetSelect" class="form-label">Asset</label>
+                        <select class="form-select" id="chartAssetSelect" aria-describedby="chartAssetHelp">
+                            <!-- Options ajoutées dynamiquement -->
+                        </select>
+                        <div id="chartAssetHelp" class="form-text">Sélectionnez l'asset à afficher</div>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="chartPeriod" class="form-label">Période</label>
+                        <select class="form-select" id="chartPeriod" aria-describedby="chartPeriodHelp">
+                            <option value="1M">1 Mois</option>
+                            <option value="3M">3 Mois</option>
+                            <option value="6M">6 Mois</option>
+                            <option value="1Y" selected>1 An</option>
+                            <option value="5Y">5 Ans</option>
+                            <option value="ALL">Tout</option>
+                        </select>
+                        <div id="chartPeriodHelp" class="form-text">Période d'affichage</div>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="chartType" class="form-label">Type</label>
+                        <select class="form-select" id="chartType" aria-describedby="chartTypeHelp">
+                            <option value="candlestick" selected>Chandeliers</option>
+                            <option value="line">Ligne</option>
+                        </select>
+                        <div id="chartTypeHelp" class="form-text">Type de graphique</div>
+                    </div>
+                    <div class="col-md-2">
+                        <label for="refreshChart" class="form-label">Actualiser</label>
+                        <button type="button" class="btn btn-outline-secondary w-100" id="refreshChart" aria-describedby="refreshChartHelp">
+                            <i class="fas fa-sync-alt" aria-hidden="true"></i>
+                            <span class="sr-only">Actualiser les données</span>
+                        </button>
+                        <div id="refreshChartHelp" class="form-text">Recharger les données</div>
+                    </div>
+                </div>
+                
+                <!-- Graphique -->
+                <div id="priceChart" style="height: 500px;"></div>
+                
+                <!-- Indicateurs -->
+                <div class="row mt-3">
+                    <div class="col-md-6">
+                        <fieldset>
+                            <legend class="h6">Indicateurs</legend>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="showVolume" checked aria-describedby="volumeHelp">
+                                <label class="form-check-label" for="showVolume">
+                                    Afficher le volume
+                                </label>
+                                <div id="volumeHelp" class="form-text">Afficher l'histogramme du volume</div>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="showMA20" aria-describedby="ma20Help">
+                                <label class="form-check-label" for="showMA20">
+                                    Moyenne mobile 20
+                                </label>
+                                <div id="ma20Help" class="form-text">Ligne de moyenne mobile sur 20 périodes</div>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="showMA50" aria-describedby="ma50Help">
+                                <label class="form-check-label" for="showMA50">
+                                    Moyenne mobile 50
+                                </label>
+                                <div id="ma50Help" class="form-text">Ligne de moyenne mobile sur 50 périodes</div>
+                            </div>
+                        </fieldset>
+                    </div>
+                    <div class="col-md-6">
+                        <div id="chartInfo" class="text-muted">
+                            <!-- Informations sur le graphique -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fermer</button>
             </div>
         </div>
     </div>
@@ -90,6 +234,8 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
 <!-- Chart.js -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<!-- TradingView Lightweight Charts -->
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 
 <script>
     // Données injectées depuis Django
@@ -100,8 +246,12 @@
     // Définition de toutes les colonnes disponibles avec formatage spécifique
     var allColumns = [
         { title: "ID", field: "id", visible: false },
+        { title: "AllAssets ID", field: "all_asset_id", visible: false },
         { title: "Symbole", field: "symbol", headerFilter: "input" },
         { title: "Nom", field: "name", headerFilter: "input" },
+        { title: "Plateforme", field: "platform", headerFilter: "input" },
+        { title: "Type", field: "asset_type", headerFilter: "input" },
+        { title: "Marché", field: "market", headerFilter: "input" },
         { title: "Secteur", field: "sector", headerFilter: "input" },
         { title: "Industrie", field: "industry", headerFilter: "input" },
         { title: "Market Cap", field: "market_cap", headerFilter: "input", formatter: function(cell) {
@@ -117,6 +267,13 @@
                 return parseFloat(value).toFixed(2);
             }
             return value || '0.00';
+        }},
+        { title: "Valeur", field: "value", headerFilter: "input", formatter: function(cell) {
+            var value = cell.getValue();
+            if (value && !isNaN(value)) {
+                return parseFloat(value).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' });
+            }
+            return value || '0,00 €';
         }},
         { title: "Historique Prix", field: "price_history", headerFilter: "input" }
     ];
@@ -208,14 +365,19 @@
         });
     }
 
-    // Formatter pour le bouton AJAX
+    // Formatter pour les boutons d'action
     function buttonFormatter(cell) {
-        var button = document.createElement("button");
-        button.textContent = "Save !";
-        button.addEventListener("click", function() {
+        var container = document.createElement("div");
+        container.className = "btn-group btn-group-sm";
+        
+        // Bouton Save
+        var saveButton = document.createElement("button");
+        saveButton.className = "btn btn-outline-success";
+        saveButton.innerHTML = '<i class="fas fa-save"></i>';
+        saveButton.title = "Sauvegarder";
+        saveButton.addEventListener("click", function() {
             var rowData = cell.getRow().getData();
             const csrftoken = getCookie('csrftoken');
-            console.log('CSRF token:', csrftoken);
             $.ajax({
                 url: '/assets/save/',
                 type: 'POST',
@@ -228,9 +390,21 @@
                     alert("Erreur lors de l'enregistrement !");
                 }
             });
-            alert("Row data: " + JSON.stringify(rowData));
         });
-        return button;
+        
+        // Bouton Graphique
+        var chartButton = document.createElement("button");
+        chartButton.className = "btn btn-outline-primary";
+        chartButton.innerHTML = '<i class="fas fa-chart-line"></i>';
+        chartButton.title = "Voir le graphique";
+        chartButton.addEventListener("click", function() {
+            var rowData = cell.getRow().getData();
+            openPriceChart(rowData.id);
+        });
+        
+        container.appendChild(saveButton);
+        container.appendChild(chartButton);
+        return container;
     }
 
     // Fonction pour récupérer le CSRF token
@@ -321,6 +495,545 @@
         .catch(error => console.error('Error:', error));
     });
 
+    // Bouton d'ajout d'Asset
+    document.getElementById('add-asset').addEventListener('click', function() {
+        $('#addAssetModal').modal('show');
+    });
+
+    // Autocomplétion pour les Assets
+    let autocompleteTimeout;
+    document.getElementById('assetSymbol').addEventListener('input', function() {
+        const query = this.value.trim();
+        const resultsDiv = document.getElementById('autocompleteResults');
+        
+        // Annuler la requête précédente
+        clearTimeout(autocompleteTimeout);
+        
+        if (query.length < 2) {
+            resultsDiv.style.display = 'none';
+            return;
+        }
+        
+        // Attendre 300ms avant de faire la requête
+        autocompleteTimeout = setTimeout(function() {
+            $.ajax({
+                url: '{% url "asset_autocomplete" %}',
+                type: 'GET',
+                data: { q: query },
+                success: function(response) {
+                    resultsDiv.innerHTML = '';
+                    
+                    if (response.results.length > 0) {
+                        response.results.forEach(function(item) {
+                            const resultItem = document.createElement('a');
+                            resultItem.href = '#';
+                            resultItem.className = 'list-group-item list-group-item-action';
+                            resultItem.innerHTML = `
+                                <div class="d-flex justify-content-between">
+                                    <strong>${item.symbol}</strong>
+                                    <small class="text-muted">${item.source}</small>
+                                </div>
+                                <div class="text-muted">${item.name}</div>
+                            `;
+                            
+                            resultItem.addEventListener('click', function(e) {
+                                e.preventDefault();
+                                document.getElementById('assetSymbol').value = item.symbol;
+                                document.getElementById('assetName').value = item.name;
+                                resultsDiv.style.display = 'none';
+                                
+                                // Stocker les données pour l'enregistrement
+                                document.getElementById('assetSymbol').dataset.allAssetId = item.id;
+                                document.getElementById('assetSymbol').dataset.source = item.source;
+                            });
+                            
+                            resultsDiv.appendChild(resultItem);
+                        });
+                        resultsDiv.style.display = 'block';
+                    } else {
+                        resultsDiv.style.display = 'none';
+                    }
+                },
+                error: function() {
+                    resultsDiv.style.display = 'none';
+                }
+            });
+        }, 300);
+    });
+
+    // Masquer l'autocomplétion quand on clique ailleurs
+    document.addEventListener('click', function(e) {
+        if (!e.target.closest('#assetSymbol') && !e.target.closest('#autocompleteResults')) {
+            document.getElementById('autocompleteResults').style.display = 'none';
+        }
+    });
+
+    // Sauvegarder l'Asset
+    document.getElementById('saveAsset').addEventListener('click', function() {
+        const symbol = document.getElementById('assetSymbol').value.trim();
+        const name = document.getElementById('assetName').value.trim();
+        const allAssetId = document.getElementById('assetSymbol').dataset.allAssetId;
+        const source = document.getElementById('assetSymbol').dataset.source || 'manual';
+        
+        if (!symbol) {
+            alert('Le symbole est requis');
+            return;
+        }
+        
+        const data = {
+            symbol: symbol,
+            name: name,
+            all_asset_id: allAssetId,
+            source: source
+        };
+        
+        const csrftoken = getCookie('csrftoken');
+        
+        $.ajax({
+            url: '{% url "create_asset" %}',
+            type: 'POST',
+            data: JSON.stringify(data),
+            contentType: 'application/json',
+            headers: {'X-CSRFToken': csrftoken},
+            success: function(response) {
+                if (response.success) {
+                    alert(response.message);
+                    const modal = document.getElementById('addAssetModal');
+                    const bootstrapModal = bootstrap.Modal.getInstance(modal);
+                    if (bootstrapModal) {
+                        bootstrapModal.hide();
+                    }
+                    // Recharger la page pour voir le nouvel Asset
+                    location.reload();
+                } else {
+                    alert('Erreur: ' + response.error);
+                }
+            },
+            error: function(xhr) {
+                alert('Erreur lors de la création: ' + (xhr.responseJSON?.error || 'Erreur inconnue'));
+            }
+        });
+    });
+
+    // Variables globales pour le graphique
+    let priceChart = null;
+    let candleSeries = null;
+    let lineSeries = null;
+    let volumeSeries = null;
+    let ma20Series = null;
+    let ma50Series = null;
+    let currentAssetId = null;
+    let allChartData = [];
+
+    // Fonction pour ouvrir le graphique des prix
+    function openPriceChart(assetId) {
+        currentAssetId = assetId;
+        
+        // Remplir le sélecteur d'assets
+        populateAssetSelector();
+        
+        // Charger les données du graphique
+        loadChartData(assetId);
+        
+        // Ouvrir le modal avec gestion d'accessibilité
+        const modal = document.getElementById('priceChartModal');
+        const bootstrapModal = new bootstrap.Modal(modal);
+        bootstrapModal.show();
+        
+        // Gérer le focus correctement
+        modal.addEventListener('shown.bs.modal', function() {
+            // Focus sur le premier élément interactif
+            const firstFocusable = modal.querySelector('select, button, input');
+            if (firstFocusable) {
+                firstFocusable.focus();
+            }
+        });
+    }
+
+    // Fonction pour peupler le sélecteur d'assets
+    function populateAssetSelector() {
+        const select = document.getElementById('chartAssetSelect');
+        select.innerHTML = '';
+        
+        tabledata.forEach(function(asset) {
+            const option = document.createElement('option');
+            option.value = asset.id;
+            option.textContent = `${asset.symbol} - ${asset.name}`;
+            if (asset.id == currentAssetId) {
+                option.selected = true;
+            }
+            select.appendChild(option);
+        });
+        
+        // Événement de changement d'asset
+        select.addEventListener('change', function() {
+            currentAssetId = parseInt(this.value);
+            loadChartData(currentAssetId);
+        });
+    }
+
+    // Fonction pour charger les données du graphique
+    function loadChartData(assetId) {
+        console.log('Chargement des données pour asset ID:', assetId);
+        
+        // Vérifier que l'assetId est valide
+        if (!assetId || assetId <= 0) {
+            alert('ID d\'asset invalide: ' + assetId);
+            return;
+        }
+        
+        $.ajax({
+            url: window.location.origin + '/assets/' + assetId + '/price-history/',
+            type: 'GET',
+            success: function(response) {
+                console.log('Réponse reçue:', response);
+                if (response.success) {
+                    allChartData = response.data.candles;
+                    document.getElementById('chartAssetName').textContent = response.data.name;
+                    createPriceChart(allChartData);
+                    updateChartInfo(response.data);
+                } else {
+                    // Afficher le message d'erreur dans le modal au lieu d'une alerte
+                    const chartContainer = document.getElementById('priceChart');
+                    chartContainer.innerHTML = `
+                        <div class="alert alert-info text-center">
+                            <i class="fas fa-info-circle fa-2x mb-3"></i>
+                            <h5>Aucun historique disponible</h5>
+                            <p>${response.error}</p>
+                            <p class="mb-0">
+                                <small>Cliquez sur "Mettre à jour les assets" pour récupérer l'historique des prix.</small>
+                            </p>
+                        </div>
+                    `;
+                    document.getElementById('chartAssetName').textContent = 'Asset sans historique';
+                }
+            },
+            error: function(xhr, status, error) {
+                console.error('Erreur AJAX:', xhr.status, status, error);
+                console.error('URL tentée:', window.location.origin + '/assets/' + assetId + '/price-history/');
+                
+                // Afficher l'erreur dans le modal
+                const chartContainer = document.getElementById('priceChart');
+                let errorMessage = 'Erreur lors du chargement des données';
+                
+                if (xhr.status === 404) {
+                    errorMessage = 'Asset non trouvé (404)';
+                } else if (xhr.status === 0) {
+                    errorMessage = 'Erreur de connexion - Vérifiez l\'URL';
+                } else if (xhr.status >= 500) {
+                    errorMessage = 'Erreur serveur (' + xhr.status + ')';
+                } else {
+                    errorMessage = 'Erreur ' + xhr.status + ': ' + error;
+                }
+                
+                chartContainer.innerHTML = `
+                    <div class="alert alert-danger text-center">
+                        <i class="fas fa-exclamation-triangle fa-2x mb-3"></i>
+                        <h5>Erreur de chargement</h5>
+                        <p>${errorMessage}</p>
+                        <p class="mb-0">
+                            <small>Vérifiez que l'asset existe et a des données d'historique.</small>
+                        </p>
+                    </div>
+                `;
+                document.getElementById('chartAssetName').textContent = 'Erreur';
+            }
+        });
+    }
+
+    // Fonction pour créer le graphique des prix
+    function createPriceChart(data) {
+        const chartContainer = document.getElementById('priceChart');
+        
+        // Vérifier que TradingView est chargé
+        if (typeof LightweightCharts === 'undefined') {
+            chartContainer.innerHTML = '<div class="alert alert-danger">Erreur: TradingView Lightweight Charts n\'est pas chargé</div>';
+            return;
+        }
+        
+        // Nettoyer le conteneur
+        chartContainer.innerHTML = '';
+        
+        try {
+            // Créer le graphique
+            priceChart = LightweightCharts.createChart(chartContainer, {
+                width: chartContainer.clientWidth,
+                height: 500,
+                layout: {
+                    backgroundColor: '#ffffff',
+                    textColor: '#333',
+                },
+                grid: {
+                    vertLines: {
+                        color: '#e1e1e1',
+                    },
+                    horzLines: {
+                        color: '#e1e1e1',
+                    },
+                },
+                crosshair: {
+                    mode: LightweightCharts.CrosshairMode.Normal,
+                },
+                rightPriceScale: {
+                    borderColor: '#cccccc',
+                },
+                timeScale: {
+                    borderColor: '#cccccc',
+                    timeVisible: true,
+                    secondsVisible: false,
+                },
+            });
+
+            // Créer les séries
+            candleSeries = priceChart.addCandlestickSeries({
+                upColor: '#26a69a',
+                downColor: '#ef5350',
+                borderVisible: false,
+                wickUpColor: '#26a69a',
+                wickDownColor: '#ef5350',
+            });
+
+            lineSeries = priceChart.addLineSeries({
+                color: '#2962FF',
+                lineWidth: 2,
+            });
+
+            // Ajouter le volume
+            volumeSeries = priceChart.addHistogramSeries({
+                color: '#26a69a',
+                priceFormat: {
+                    type: 'volume',
+                },
+                priceScaleId: '',
+                scaleMargins: {
+                    top: 0.8,
+                    bottom: 0,
+                },
+            });
+
+            // Ajouter les moyennes mobiles
+            ma20Series = priceChart.addLineSeries({
+                color: '#FF6B6B',
+                lineWidth: 1,
+                title: 'MA 20',
+            });
+
+            ma50Series = priceChart.addLineSeries({
+                color: '#4ECDC4',
+                lineWidth: 1,
+                title: 'MA 50',
+            });
+
+            // Appliquer les données
+            applyChartData(data);
+            
+            // Gérer le redimensionnement
+            window.addEventListener('resize', function() {
+                if (priceChart) {
+                    priceChart.applyOptions({
+                        width: chartContainer.clientWidth,
+                    });
+                }
+            });
+            
+        } catch (error) {
+            console.error('Erreur création graphique:', error);
+            chartContainer.innerHTML = '<div class="alert alert-danger">Erreur lors de la création du graphique: ' + error.message + '</div>';
+        }
+    }
+
+    // Fonction pour appliquer les données au graphique
+    function applyChartData(data) {
+        if (!data || data.length === 0) {
+            console.log('Aucune donnée à afficher');
+            return;
+        }
+
+        // Vérifier que les séries existent
+        if (!candleSeries || !lineSeries || !volumeSeries || !ma20Series || !ma50Series) {
+            console.error('Séries de graphique non initialisées');
+            return;
+        }
+
+        try {
+            // Filtrer selon la période sélectionnée
+            const period = document.getElementById('chartPeriod').value;
+            const filteredData = filterDataByPeriod(data, period);
+
+            console.log('Données filtrées:', filteredData.length, 'points');
+
+            // Appliquer les données selon le type de graphique
+            const chartType = document.getElementById('chartType').value;
+            
+            if (chartType === 'candlestick') {
+                candleSeries.setData(filteredData);
+                lineSeries.setData([]);
+            } else {
+                // Convertir les chandeliers en ligne (prix de fermeture)
+                const lineData = filteredData.map(candle => ({
+                    time: candle.time,
+                    value: candle.close,
+                }));
+                lineSeries.setData(lineData);
+                candleSeries.setData([]);
+            }
+
+            // Appliquer le volume si activé
+            if (document.getElementById('showVolume').checked) {
+                const volumeData = filteredData.map(candle => ({
+                    time: candle.time,
+                    value: candle.volume || 0,
+                    color: candle.close >= candle.open ? '#26a69a' : '#ef5350',
+                }));
+                volumeSeries.setData(volumeData);
+            } else {
+                volumeSeries.setData([]);
+            }
+
+            // Appliquer les moyennes mobiles
+            if (document.getElementById('showMA20').checked) {
+                const ma20Data = calculateMA(filteredData, 20);
+                ma20Series.setData(ma20Data);
+            } else {
+                ma20Series.setData([]);
+            }
+
+            if (document.getElementById('showMA50').checked) {
+                const ma50Data = calculateMA(filteredData, 50);
+                ma50Series.setData(ma50Data);
+            } else {
+                ma50Series.setData([]);
+            }
+        } catch (error) {
+            console.error('Erreur application données:', error);
+        }
+    }
+
+    // Fonction pour filtrer les données par période
+    function filterDataByPeriod(data, period) {
+        if (period === 'ALL') return data;
+
+        const now = Math.floor(Date.now() / 1000);
+        const periods = {
+            '1M': 30 * 24 * 60 * 60,
+            '3M': 90 * 24 * 60 * 60,
+            '6M': 180 * 24 * 60 * 60,
+            '1Y': 365 * 24 * 60 * 60,
+            '5Y': 5 * 365 * 24 * 60 * 60,
+        };
+
+        const cutoff = now - periods[period];
+        return data.filter(candle => candle.time >= cutoff);
+    }
+
+    // Fonction pour calculer les moyennes mobiles
+    function calculateMA(data, period) {
+        const result = [];
+        for (let i = period - 1; i < data.length; i++) {
+            const sum = data.slice(i - period + 1, i + 1).reduce((acc, candle) => acc + candle.close, 0);
+            const average = sum / period;
+            result.push({
+                time: data[i].time,
+                value: average,
+            });
+        }
+        return result;
+    }
+
+    // Fonction pour mettre à jour les informations du graphique
+    function updateChartInfo(data) {
+        const infoDiv = document.getElementById('chartInfo');
+        if (data.candles && data.candles.length > 0) {
+            const first = data.candles[0];
+            const last = data.candles[data.candles.length - 1];
+            const change = last.close - first.close;
+            const changePercent = (change / first.close) * 100;
+            
+            infoDiv.innerHTML = `
+                <strong>Période:</strong> ${data.period}<br>
+                <strong>Données:</strong> ${data.candles.length} points<br>
+                <strong>Variation:</strong> <span class="${change >= 0 ? 'text-success' : 'text-danger'}">
+                    ${change >= 0 ? '+' : ''}${change.toFixed(2)} (${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%)
+                </span>
+            `;
+        } else {
+            infoDiv.innerHTML = '<em>Aucune donnée disponible</em>';
+        }
+    }
+
+    // Événements pour les contrôles du graphique
+    document.addEventListener('DOMContentLoaded', function() {
+        // Vérifier que TradingView est chargé
+        if (typeof LightweightCharts === 'undefined') {
+            console.error('TradingView Lightweight Charts non chargé');
+            return;
+        }
+
+        // Initialiser les événements seulement si TradingView est disponible
+        document.getElementById('chartPeriod').addEventListener('change', function() {
+            if (allChartData.length > 0) {
+                applyChartData(allChartData);
+            }
+        });
+
+        document.getElementById('chartType').addEventListener('change', function() {
+            if (allChartData.length > 0) {
+                applyChartData(allChartData);
+            }
+        });
+
+        document.getElementById('showVolume').addEventListener('change', function() {
+            if (allChartData.length > 0) {
+                applyChartData(allChartData);
+            }
+        });
+
+        document.getElementById('showMA20').addEventListener('change', function() {
+            if (allChartData.length > 0) {
+                applyChartData(allChartData);
+            }
+        });
+
+        document.getElementById('showMA50').addEventListener('change', function() {
+            if (allChartData.length > 0) {
+                applyChartData(allChartData);
+            }
+        });
+
+        document.getElementById('refreshChart').addEventListener('click', function() {
+            if (currentAssetId) {
+                loadChartData(currentAssetId);
+            }
+        });
+    });
+
+    // Bouton de mise à jour des assets
+    document.getElementById('update-all-assets').addEventListener('click', function() {
+        console.log("Mise à jour de tous les Assets...");
+        
+        if (confirm('Mettre à jour tous les Assets avec les données Yahoo Finance ? Cela peut prendre quelques minutes.')) {
+            var csrftoken = getCookie('csrftoken');
+            
+            $.ajax({
+                url: '{% url "update_all_assets_with_yahoo" %}',
+                type: 'POST',
+                headers: {'X-CSRFToken': csrftoken},
+                success: function(response) {
+                    if (response.status === 'success') {
+                        alert(response.message);
+                        // Recharger la page pour voir les mises à jour
+                        location.reload();
+                    } else {
+                        alert('Erreur: ' + response.message);
+                    }
+                },
+                error: function() {
+                    alert('Erreur lors de la mise à jour');
+                }
+            });
+        }
+    });
+
     // Fonction pour créer les graphiques en camembert
     function createPieChart(canvasId, data, title) {
         const ctx = document.getElementById(canvasId).getContext('2d');
@@ -383,13 +1096,13 @@
     // Créer les graphiques quand la page est chargée
     document.addEventListener('DOMContentLoaded', function() {
         if (chartSectorData.length > 0) {
-            createPieChart('sectorChart', chartSectorData, 'Répartition par Secteur');
+            createPieChart('sectorChart', chartSectorData, 'Répartition par Secteur (Valeur)');
         } else {
             document.getElementById('sectorChart').parentElement.innerHTML = '<p class="text-muted text-center">Aucune donnée disponible</p>';
         }
         
         if (chartIndustryData.length > 0) {
-            createPieChart('industryChart', chartIndustryData, 'Répartition par Industrie');
+            createPieChart('industryChart', chartIndustryData, 'Répartition par Industrie (Valeur)');
         } else {
             document.getElementById('industryChart').parentElement.innerHTML = '<p class="text-muted text-center">Aucune donnée disponible</p>';
         }

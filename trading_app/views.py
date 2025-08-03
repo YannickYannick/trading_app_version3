@@ -16,6 +16,8 @@ from datetime import datetime, timedelta
 from .services import BrokerService
 import requests
 import yfinance as yf
+import pandas as pd
+import time
 from django.core.serializers.json import DjangoJSONEncoder
 from .brokers.factory import BrokerFactory
 from .models import Asset, Position, Trade, Strategy, BrokerCredentials, AssetType, Market, AssetTradable, AllAssets
@@ -35,57 +37,123 @@ def home(request):
 
 # Create your views here.
 
-def asset_list(request):
-    assets = Asset.objects.all()
-    return render(request, 'trading_app/asset_list.html', {'assets': assets})
+
 
 def asset_tabulator(request):
-    # Récupérer les assets avec les données de taille depuis les positions
+    # Récupérer tous les Asset mis à jour par Yahoo Finance
     assets = Asset.objects.all()
-    data_assets = []
+    
+    # Dictionnaire pour regrouper par symbole
+    grouped_assets = {}
     
     for asset in assets:
-        # Calculer la taille totale de l'asset depuis les positions
-        if request.user.is_authenticated:
-            total_size = Position.objects.filter(
-                asset_tradable__asset=asset,
-                user=request.user
-            ).aggregate(
-                total_size=models.Sum('size')
-            )['total_size'] or 0
-        else:
-            total_size = 0
+        symbol = asset.symbol_clean or asset.symbol
         
-        asset_data = {
-            'id': asset.id,
-            'symbol': asset.symbol,
-            'name': asset.name,
-            'sector': asset.sector,
-            'industry': asset.industry,
-            'market_cap': float(asset.market_cap),
-            'price_history': asset.price_history,
-            'size': float(total_size),  # Taille totale depuis les positions
-        }
-        data_assets.append(asset_data)
+        if symbol not in grouped_assets:
+            # Récupérer les données depuis Asset
+            sector = asset.sector or 'Non défini'
+            industry = asset.industry or 'Non défini'
+            market_cap = float(asset.market_cap) if asset.market_cap else 0.0
+            
+            # Traiter l'historique des prix
+            price_history_display = 'Non disponible'
+            last_price = 0.0
+            if asset.price_history and asset.price_history != 'xxxx':
+                try:
+                    price_data = json.loads(asset.price_history)
+                    if price_data and len(price_data) >= 3:
+                        # Prendre les 3 dernières valeurs de prix de fermeture
+                        last_3_closes = [str(round(candle['close'], 2)) for candle in price_data[-3:]]
+                        price_history_display = ', '.join(last_3_closes)
+                        # Récupérer le dernier prix pour le calcul de la valeur
+                        last_price = float(price_data[-1]['close'])
+                    elif price_data:
+                        # Si moins de 3 valeurs, prendre toutes
+                        last_closes = [str(round(candle['close'], 2)) for candle in price_data]
+                        price_history_display = ', '.join(last_closes)
+                        # Récupérer le dernier prix pour le calcul de la valeur
+                        last_price = float(price_data[-1]['close'])
+                except (json.JSONDecodeError, KeyError, IndexError):
+                    price_history_display = 'Erreur format'
+            
+            # Chercher s'il y a un AssetTradable correspondant
+            asset_tradable = None
+            try:
+                asset_tradable = AssetTradable.objects.get(symbol=symbol)
+            except AssetTradable.DoesNotExist:
+                # Essayer de trouver par symbole nettoyé
+                clean_symbol = symbol.split(':')[0] if ':' in symbol else symbol
+                clean_symbol = clean_symbol.split('_')[0] if '_' in clean_symbol else clean_symbol
+                try:
+                    asset_tradable = AssetTradable.objects.get(symbol=clean_symbol)
+                except AssetTradable.DoesNotExist:
+                    pass
+            
+            # Calculer la taille totale depuis toutes les positions correspondantes
+            total_size = 0.0
+            if request.user.is_authenticated:
+                # Nettoyer le symbole pour la recherche
+                base_symbol = symbol.split(':')[0] if ':' in symbol else symbol
+                base_symbol = base_symbol.split('_')[0] if '_' in base_symbol else base_symbol
+                base_symbol = base_symbol.upper()
+                
+                # Chercher tous les AssetTradable qui correspondent au symbole de base
+                matching_asset_tradables = AssetTradable.objects.filter(
+                    symbol__startswith=base_symbol
+                )
+                
+                # Calculer la taille totale de toutes les positions correspondantes
+                for at in matching_asset_tradables:
+                    positions_size = Position.objects.filter(
+                        asset_tradable=at,
+                        user=request.user
+                    ).aggregate(
+                        total_size=models.Sum('size')
+                    )['total_size'] or 0
+                    total_size += float(positions_size)
+                
+                print(f"🔍 Symbole: {symbol}, Base: {base_symbol}, AssetTradables trouvés: {matching_asset_tradables.count()}, Taille totale: {total_size}")
+            
+            # Calculer la valeur (size * dernier prix)
+            value = total_size * last_price
+            
+            grouped_assets[symbol] = {
+                'id': asset.id,
+                'symbol': symbol,
+                'name': asset.name,
+                'platform': asset_tradable.platform if asset_tradable else 'Non défini',
+                'asset_type': asset_tradable.asset_type.name if asset_tradable else 'Non défini',
+                'market': asset_tradable.market.name if asset_tradable else 'Non défini',
+                'sector': sector,
+                'industry': industry,
+                'market_cap': market_cap,
+                'size': total_size,
+                'value': value,
+                'price_history': price_history_display,
+                'all_asset_id': asset_tradable.all_asset.id if asset_tradable and asset_tradable.all_asset else None,
+            }
+    
+    # Convertir le dictionnaire en liste
+    data_assets = list(grouped_assets.values())
     
     # Calculer les données pour les graphiques
     sector_data = {}
     industry_data = {}
     
     for asset in data_assets:
-        size = asset['size']
+        value = asset['value']  # Utiliser la valeur au lieu de la taille
         sector = asset['sector'] or 'Non défini'
         industry = asset['industry'] or 'Non défini'
         
         # Agréger par secteur
         if sector not in sector_data:
             sector_data[sector] = 0
-        sector_data[sector] += size
+        sector_data[sector] += value
         
         # Agréger par industrie
         if industry not in industry_data:
             industry_data[industry] = 0
-        industry_data[industry] += size
+        industry_data[industry] += value
     
     # Convertir en format pour Chart.js
     chart_sector_data = [{'label': k, 'value': v} for k, v in sector_data.items() if v > 0]
@@ -199,7 +267,7 @@ def trade_tabulator_with_synch(request):
     })
 
 def position_tabulator(request):
-    positions = Position.objects.select_related('asset_tradable__asset').all()
+    positions = Position.objects.select_related('asset_tradable').all()
     data_positions = []
     
     # Calculer les données pour les graphiques
@@ -213,8 +281,8 @@ def position_tabulator(request):
             'asset_tradable_id': position.asset_tradable_id,
             'asset_name': position.asset_tradable.name,
             'asset_symbol': position.asset_tradable.symbol,
-            'underlying_asset_name': position.asset_tradable.asset.name,
-            'underlying_asset_symbol': position.asset_tradable.asset.symbol,
+            'underlying_asset_name': position.asset_tradable.name,
+            'underlying_asset_symbol': position.asset_tradable.symbol,
             'size': str(position.size),
             'entry_price': str(position.entry_price),
             'current_price': str(position.current_price),
@@ -228,8 +296,9 @@ def position_tabulator(request):
         
         # Agréger les données pour les graphiques
         size = float(position.size)
-        sector = position.asset_tradable.asset.sector or 'Non défini'
-        industry = position.asset_tradable.asset.industry or 'Non défini'
+        # Pour l'instant, on utilise des valeurs par défaut car sector/industry ne sont plus dans Asset
+        sector = 'Non défini'
+        industry = 'Non défini'
         
         # Agréger par secteur
         if sector not in sector_data:
@@ -573,12 +642,18 @@ def asset_tradable_tabulator(request):
                 asset.save()
                 print(f"✅ Asset mis à jour: {asset.symbol} - Secteur: {asset.sector} - Industrie: {asset.industry} - Market Cap: {asset.market_cap}")
             
+            # Trouver un AllAssets correspondant existant
+            all_asset = AssetTradable.find_matching_all_asset(symbol, data.get('platform', 'saxo'))
+            
+            if not all_asset:
+                return JsonResponse({'status': 'error', 'message': f'Aucun AllAssets trouvé pour le symbole {symbol}. Veuillez d\'abord ajouter cet actif dans le catalogue AllAssets.'})
+            
             # Récupérer ou créer l'AssetTradable
             asset_tradable, created_tradable = AssetTradable.objects.get_or_create(
-                symbol=symbol,
+                symbol=symbol.upper(),
                 platform=data.get('platform', 'saxo'),
                 defaults={
-                    'asset': asset,
+                    'all_asset': all_asset,
                     'name': asset_data['name'],
                     'asset_type': asset_type,
                     'market': market,
@@ -587,7 +662,6 @@ def asset_tradable_tabulator(request):
             
             if not created_tradable:
                 # Mise à jour si l'objet existe déjà
-                asset_tradable.asset = asset
                 asset_tradable.name = asset_data['name']
                 asset_tradable.asset_type = asset_type
                 asset_tradable.market = market
@@ -599,27 +673,26 @@ def asset_tradable_tabulator(request):
             print(f"❌ Erreur lors de la sauvegarde: {e}")
             return JsonResponse({'status': 'error', 'message': f'Erreur: {str(e)}'})
     
-    # Récupérer les données pour Tabulator avec les informations de l'Asset
-    asset_tradables = AssetTradable.objects.select_related('asset', 'asset_type', 'market').all()
+    # Récupérer les données pour Tabulator
+    asset_tradables = AssetTradable.objects.select_related('asset_type', 'market').all()
     data_asset_tradables = []
     
     for at in asset_tradables:
         data_asset_tradables.append({
             'id': at.id,
-            'asset_id': at.asset.id,
             'symbol': at.symbol,
             'name': at.name,
             'platform': at.platform,
             'asset_type': at.asset_type.name,
             'market': at.market.name,
-            'sector': at.asset.sector,
-            'industry': at.asset.industry,
-            'market_cap': at.asset.market_cap,
+            'sector': 'Non défini',  # Plus disponible depuis Asset
+            'industry': 'Non défini',  # Plus disponible depuis Asset
+            'market_cap': 0.0,  # Plus disponible depuis Asset
             'created_at': at.created_at.strftime('%Y-%m-%d %H:%M:%S'),
         })
     
     return render(request, 'trading_app/asset_tradable_tabulator.html', {
-        'data_asset_tradables': data_asset_tradables
+        'data_asset_tradables': json.dumps(data_asset_tradables, cls=DjangoJSONEncoder)
     })
 
 def asset_search_tabulator(request):
@@ -653,9 +726,9 @@ def asset_search_tabulator(request):
                             'platform': asset_tradable.platform,
                             'asset_type': asset_tradable.asset_type.name,
                             'market': asset_tradable.market.name,
-                            'sector': asset.sector,
-                            'industry': asset.industry,
-                            'market_cap': asset.market_cap,
+                            'sector': 'Non défini',  # Plus disponible depuis Asset
+                            'industry': 'Non défini',  # Plus disponible depuis Asset
+                            'market_cap': 0.0,  # Plus disponible depuis Asset
                         }
                     })
                 else:
@@ -680,9 +753,9 @@ def asset_search_tabulator(request):
                             'platform': asset_tradable.platform,
                             'asset_type': asset_tradable.asset_type.name,
                             'market': asset_tradable.market.name,
-                            'sector': asset.sector,
-                            'industry': asset.industry,
-                            'market_cap': asset.market_cap,
+                            'sector': 'Non défini',  # Plus disponible depuis Asset
+                            'industry': 'Non défini',  # Plus disponible depuis Asset
+                            'market_cap': 0.0,  # Plus disponible depuis Asset
                         }
                     })
                 else:
@@ -704,7 +777,7 @@ def asset_search_tabulator(request):
             })
     
     # Récupérer les AssetTradable existants pour l'affichage
-    asset_tradables = AssetTradable.objects.select_related('asset', 'asset_type', 'market').all()
+    asset_tradables = AssetTradable.objects.select_related('asset_type', 'market').all()
     data_asset_tradables = []
     
     for at in asset_tradables:
@@ -715,9 +788,9 @@ def asset_search_tabulator(request):
             'platform': at.platform,
             'asset_type': at.asset_type.name,
             'market': at.market.name,
-            'sector': at.asset.sector,
-            'industry': at.asset.industry,
-            'market_cap': at.asset.market_cap,
+            'sector': 'Non défini',  # Plus disponible depuis Asset
+            'industry': 'Non défini',  # Plus disponible depuis Asset
+            'market_cap': 0.0,  # Plus disponible depuis Asset
             'created_at': at.created_at.strftime('%Y-%m-%d %H:%M:%S'),
         })
     
@@ -872,12 +945,64 @@ def get_yahoo_data(symbol: str) -> dict:
             
         print(f" Symbole nettoyé: {clean_symbol}")
         
-        ticker = yf.Ticker(clean_symbol)
+        # Essayer différents symboles pour les cryptomonnaies
+        symbols_to_try = [clean_symbol]
+        
+        # Pour les cryptomonnaies, essayer avec -USD
+        if clean_symbol in ["BTC", "ETH", "SOL", "AVAX", "BNB", "ADA", "DOT", "LINK", "UNI", "MATIC"]:
+            symbols_to_try.append(f"{clean_symbol}-USD")
+        
+        # Pour les paires EUR, essayer sans EUR
+        if clean_symbol.endswith("EUR"):
+            base_symbol = clean_symbol[:-3]  # Enlever EUR
+            symbols_to_try.extend([base_symbol, f"{base_symbol}-USD"])
+        
+        # Essayer chaque symbole jusqu'à ce qu'un fonctionne
+        ticker = None
+        working_symbol = None
+        
+        for try_symbol in symbols_to_try:
+            try:
+                print(f"🔍 Essai avec le symbole: {try_symbol}")
+                ticker = yf.Ticker(try_symbol)
+                # Tester si le ticker a des données
+                hist = ticker.history(period="1d")
+                if not hist.empty:
+                    working_symbol = try_symbol
+                    print(f"✅ Symbole fonctionnel trouvé: {working_symbol}")
+                    break
+            except Exception as e:
+                print(f"❌ Échec avec {try_symbol}: {e}")
+                continue
+        
+        if not ticker or working_symbol is None:
+            print(f"❌ Aucun symbole fonctionnel trouvé pour {symbol}")
+            return None
         
         # Prix actuel
         hist = ticker.history(period="1d")
         current_price = hist["Close"].iloc[-1] if not hist.empty else 0.0
         print(f"💰 Prix actuel: {current_price}")
+        
+        # Historique des prix sur 5 ans (format hebdomadaire)
+        hist_5y = ticker.history(period="5y", interval="1wk")
+        price_history_data = []
+        
+        if not hist_5y.empty:
+            for index, row in hist_5y.iterrows():
+                candle_data = {
+                    'date': index.strftime('%Y-%m-%d'),
+                    'open': float(row['Open']),
+                    'high': float(row['High']),
+                    'low': float(row['Low']),
+                    'close': float(row['Close']),
+                    'volume': int(row['Volume']) if not pd.isna(row['Volume']) else 0
+                }
+                price_history_data.append(candle_data)
+            
+            print(f"📊 Historique récupéré: {len(price_history_data)} bougies sur 5 ans")
+        else:
+            print(f"⚠️ Pas d'historique disponible pour {symbol}")
         
         # Métadonnées
         info = ticker.info
@@ -888,13 +1013,27 @@ def get_yahoo_data(symbol: str) -> dict:
         if market_cap == "N/A" or market_cap is None:
             market_cap = 0.0
             
-        sector = info.get("sector", "Unknown")
-        if sector == "N/A" or sector is None:
-            sector = "Unknown"
-            
-        industry = info.get("industry", "Unknown")
-        if industry == "N/A" or industry is None:
-            industry = "Unknown"
+        # Détecter si c'est une cryptomonnaie
+        quote_type = info.get("quoteType", "")
+        is_crypto = quote_type == "CRYPTOCURRENCY" or symbol.endswith("USDT") or symbol.endswith("BTC") or symbol.endswith("ETH") or symbol.endswith("EUR")
+        
+        # Détection spéciale pour les cryptomonnaies connues
+        crypto_symbols = ["BTC", "ETH", "SOL", "AVAX", "BNB", "ADA", "DOT", "LINK", "UNI", "MATIC"]
+        if any(crypto in symbol.upper() for crypto in crypto_symbols):
+            is_crypto = True
+        
+        if is_crypto:
+            sector = "Crypto"
+            industry = "Crypto"
+            print(f"🔐 Détecté comme cryptomonnaie: {symbol}")
+        else:
+            sector = info.get("sector", "Unknown")
+            if sector == "N/A" or sector is None:
+                sector = "Unknown"
+                
+            industry = info.get("industry", "Unknown")
+            if industry == "N/A" or industry is None:
+                industry = "Unknown"
             
         name = info.get("longName", symbol)
         if name == "N/A" or name is None:
@@ -906,6 +1045,7 @@ def get_yahoo_data(symbol: str) -> dict:
         print(f"   - Secteur: {sector}")
         print(f"   - Industrie: {industry}")
         print(f"   - Market Cap: {market_cap}")
+        print(f"   - Historique: {len(price_history_data)} bougies")
         
         return {
             'symbol': symbol,
@@ -915,12 +1055,166 @@ def get_yahoo_data(symbol: str) -> dict:
             'sector': sector,
             'industry': industry,
             'market_cap': market_cap,
-            'price_history': 'xxxx',
+            'price_history': json.dumps(price_history_data),
             'current_price': current_price,
         }
         
     except Exception as e:
         print(f"❌ Erreur Yahoo Finance pour {symbol}: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+def get_crypto_data(symbol: str) -> dict:
+    """Récupère les données d'une cryptomonnaie depuis CoinGecko API"""
+    try:
+        print(f"🪙 Recherche CoinGecko pour: {symbol}")
+        
+        # Mapping des symboles vers les IDs CoinGecko
+        crypto_mapping = {
+            'BTC': 'bitcoin',
+            'ETH': 'ethereum', 
+            'ETHW': 'ethereum',  # Utiliser Ethereum standard pour ETHW
+            'SOL': 'solana',
+            'AVAX': 'avalanche-2',
+            'BNB': 'binancecoin',
+            'ADA': 'cardano',
+            'DOT': 'polkadot',
+            'LINK': 'chainlink',
+            'UNI': 'uniswap',
+            'MATIC': 'matic-network',
+            'USDT': 'tether',
+            'USDC': 'usd-coin',
+            'DAI': 'dai',
+            'LTC': 'litecoin',
+            'XRP': 'ripple',
+            'DOGE': 'dogecoin',
+            'SHIB': 'shiba-inu',
+            'TRX': 'tron',
+            'BCH': 'bitcoin-cash',
+            'XLM': 'stellar'
+        }
+        
+        # Nettoyer le symbole
+        clean_symbol = symbol.split(':')[0] if ':' in symbol else symbol
+        clean_symbol = clean_symbol.split('_')[0] if '_' in clean_symbol else clean_symbol
+        clean_symbol = clean_symbol.upper()
+        
+        # Chercher l'ID CoinGecko
+        coin_id = None
+        
+        # Gérer les paires de devises (ex: ETHEUR -> ETH, BTCEUR -> BTC)
+        if clean_symbol.endswith('EUR'):
+            base_symbol = clean_symbol[:-3]  # Enlever EUR
+            if base_symbol in crypto_mapping:
+                coin_id = crypto_mapping[base_symbol]
+                print(f"🔄 Paire EUR détectée: {clean_symbol} -> {base_symbol}")
+        
+        # Si pas trouvé, chercher dans le mapping normal
+        if not coin_id:
+            for sym, cg_id in crypto_mapping.items():
+                if clean_symbol == sym or clean_symbol.endswith(sym):
+                    coin_id = cg_id
+                    break
+        
+        if not coin_id:
+            print(f"❌ Symbole crypto non reconnu: {clean_symbol}")
+            return None
+        
+        print(f"🔍 ID CoinGecko trouvé: {coin_id}")
+        
+        # Récupérer les données de base avec retry
+        url = f"https://api.coingecko.com/api/v3/coins/{coin_id}"
+        
+        # Retry jusqu'à 3 fois en cas d'erreur 429
+        for attempt in range(3):
+            response = requests.get(url)
+            
+            if response.status_code == 200:
+                break
+            elif response.status_code == 429:
+                wait_time = (attempt + 1) * 2  # Attendre 2s, puis 4s, puis 6s
+                print(f"⚠️ Limite API atteinte, attente de {wait_time}s...")
+                time.sleep(wait_time)
+            else:
+                print(f"❌ Erreur API CoinGecko: {response.status_code}")
+                return None
+        else:
+            print(f"❌ Échec après 3 tentatives pour {coin_id}")
+            return None
+        
+        data = response.json()
+        
+        # Prix actuel
+        current_price = data['market_data']['current_price']['usd']
+        
+        # Market cap
+        market_cap = data['market_data']['market_cap']['usd']
+        
+        # Nom
+        name = data['name']
+        
+        # Historique des prix (7 jours avec données quotidiennes)
+        url_history = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart?vs_currency=usd&days=7&interval=daily"
+        
+        # Retry pour l'historique aussi
+        for attempt in range(3):
+            response_history = requests.get(url_history)
+            
+            if response_history.status_code == 200:
+                break
+            elif response_history.status_code == 429:
+                wait_time = (attempt + 1) * 2
+                print(f"⚠️ Limite API atteinte pour l'historique, attente de {wait_time}s...")
+                time.sleep(wait_time)
+            else:
+                print(f"❌ Erreur API CoinGecko pour l'historique: {response_history.status_code}")
+                break
+        else:
+            print(f"❌ Échec après 3 tentatives pour l'historique de {coin_id}")
+        
+        price_history_data = []
+        if response_history.status_code == 200:
+            history_data = response_history.json()
+            prices = history_data['prices']
+            
+            for timestamp_ms, price in prices:
+                date = datetime.fromtimestamp(timestamp_ms / 1000).strftime('%Y-%m-%d')
+                candle_data = {
+                    'date': date,
+                    'open': price,
+                    'high': price,  # CoinGecko ne donne pas OHLC, on utilise le prix
+                    'low': price,
+                    'close': price,
+                    'volume': 0  # Pas de volume dans cette API
+                }
+                price_history_data.append(candle_data)
+            
+            print(f"📊 Historique récupéré: {len(price_history_data)} jours")
+        
+        # Respecter les limites de l'API (pas plus de 30 appels/minute pour être sûr)
+        time.sleep(2.0)
+        
+        print(f"✅ Données CoinGecko récupérées:")
+        print(f"   - Nom: {name}")
+        print(f"   - Prix: {current_price}")
+        print(f"   - Market Cap: {market_cap}")
+        print(f"   - Historique: {len(price_history_data)} jours")
+        
+        return {
+            'symbol': symbol,
+            'name': name,
+            'type': 'Crypto',
+            'market': 'CoinGecko',
+            'sector': 'Crypto',
+            'industry': 'Crypto',
+            'market_cap': market_cap,
+            'price_history': json.dumps(price_history_data),
+            'current_price': current_price,
+        }
+        
+    except Exception as e:
+        print(f"❌ Erreur CoinGecko pour {symbol}: {e}")
         import traceback
         traceback.print_exc()
         return None
@@ -954,12 +1248,18 @@ def create_asset_from_data(data: dict, platform: str) -> tuple:
             asset.save()
             print(f"✅ Asset mis à jour: {asset.symbol} - Secteur: {asset.sector} - Industrie: {asset.industry} - Market Cap: {asset.market_cap}")
         
+        # Trouver un AllAssets correspondant existant
+        all_asset = AssetTradable.find_matching_all_asset(data['symbol'], platform)
+        
+        if not all_asset:
+            raise Exception(f'Aucun AllAssets trouvé pour le symbole {data["symbol"]}. Veuillez d\'abord ajouter cet actif dans le catalogue AllAssets.')
+        
         # Récupérer ou créer l'AssetTradable
         asset_tradable, created_tradable = AssetTradable.objects.get_or_create(
-            symbol=data['symbol'],
+            symbol=data['symbol'].upper(),
             platform=platform,
             defaults={
-                'asset': asset,
+                'all_asset': all_asset,
                 'name': data.get('name', data['symbol']),
                 'asset_type': asset_type,
                 'market': market,
@@ -969,7 +1269,6 @@ def create_asset_from_data(data: dict, platform: str) -> tuple:
         # Si l'AssetTradable existe déjà, mettre à jour
         if not created_tradable:
             print(f"🔄 Mise à jour de l'AssetTradable existant: {asset_tradable.symbol}")
-            asset_tradable.asset = asset
             asset_tradable.name = data.get('name', asset_tradable.name)
             asset_tradable.asset_type = asset_type
             asset_tradable.market = market
@@ -982,6 +1281,228 @@ def create_asset_from_data(data: dict, platform: str) -> tuple:
         print(f"❌ Erreur création AssetTradable: {e}")
         raise
 
+def asset_autocomplete(request):
+    """Autocomplétion pour les Assets"""
+    query = request.GET.get('q', '').strip()
+    if not query:
+        return JsonResponse({'results': []})
+    
+    # Chercher dans AllAssets d'abord
+    all_assets = AllAssets.objects.filter(
+        models.Q(symbol__icontains=query) | 
+        models.Q(name__icontains=query)
+    )[:10]
+    
+    results = []
+    for asset in all_assets:
+        clean_symbol = asset.get_clean_symbol()
+        results.append({
+            'id': asset.id,
+            'text': f"{clean_symbol} - {asset.name}",
+            'symbol': clean_symbol,
+            'name': asset.name,
+            'platform': asset.platform,
+            'asset_type': asset.asset_type,
+            'market': asset.market,
+            'source': 'all_assets'
+        })
+    
+    # Si pas assez de résultats, ajouter des suggestions basées sur le query
+    if len(results) < 5:
+        # Suggestions pour les cryptomonnaies populaires
+        crypto_suggestions = ['BTC', 'ETH', 'SOL', 'AVAX', 'BNB', 'ADA', 'DOT', 'LINK', 'UNI', 'MATIC']
+        for crypto in crypto_suggestions:
+            if query.upper() in crypto and not any(r['symbol'] == crypto for r in results):
+                results.append({
+                    'id': f'crypto_{crypto}',
+                    'text': f"{crypto} - {crypto} (Cryptomonnaie)",
+                    'symbol': crypto,
+                    'name': f"{crypto} (Cryptomonnaie)",
+                    'platform': 'binance',
+                    'asset_type': 'Crypto',
+                    'market': 'SPOT',
+                    'source': 'suggestion'
+                })
+        
+        # Suggestions pour les actions populaires
+        stock_suggestions = ['AAPL', 'GOOGL', 'MSFT', 'TSLA', 'AMZN', 'META', 'NVDA', 'NFLX']
+        for stock in stock_suggestions:
+            if query.upper() in stock and not any(r['symbol'] == stock for r in results):
+                results.append({
+                    'id': f'stock_{stock}',
+                    'text': f"{stock} - {stock} (Action)",
+                    'symbol': stock,
+                    'name': f"{stock} (Action)",
+                    'platform': 'yahoo',
+                    'asset_type': 'Stock',
+                    'market': 'NASDAQ',
+                    'source': 'suggestion'
+                })
+    
+    return JsonResponse({'results': results[:10]})
+
+def create_asset(request):
+    """Crée un nouvel Asset avec synchronisation automatique"""
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+            symbol = data.get('symbol', '').strip().upper()
+            name = data.get('name', '').strip()
+            source = data.get('source', 'manual')  # 'all_assets', 'suggestion', 'manual'
+            
+            if not symbol:
+                return JsonResponse({'success': False, 'error': 'Symbole requis'})
+            
+            # Vérifier si l'Asset existe déjà
+            existing_asset = Asset.objects.filter(symbol_clean=symbol).first()
+            if existing_asset:
+                return JsonResponse({'success': False, 'error': f'Asset {symbol} existe déjà'})
+            
+            # Créer le nouvel Asset
+            asset = Asset.objects.create(
+                symbol=symbol,  # Symbole original
+                symbol_clean=symbol,  # Symbole nettoyé (même chose ici)
+                name=name or symbol,
+                sector='xxxx',
+                industry='xxxx',
+                market_cap=0.0,
+                price_history='xxxx'
+            )
+            
+            # Si c'est un AllAssets existant, créer la référence
+            if source == 'all_assets' and data.get('all_asset_id'):
+                try:
+                    all_asset = AllAssets.objects.get(id=data['all_asset_id'])
+                    asset.all_asset = all_asset
+                    asset.save()
+                except AllAssets.DoesNotExist:
+                    pass
+            
+            # Synchronisation automatique avec Yahoo/CoinGecko
+            print(f"🔄 Synchronisation automatique pour {symbol}")
+            
+            # Détecter si c'est une cryptomonnaie
+            crypto_symbols = ["BTC", "ETH", "ETHW", "SOL", "AVAX", "BNB", "ADA", "DOT", "LINK", "UNI", "MATIC", "USDT", "USDC", "DAI", "LTC", "XRP", "DOGE", "SHIB", "TRX", "BCH", "XLM"]
+            is_crypto = any(crypto in symbol.upper() for crypto in crypto_symbols)
+            
+            if is_crypto:
+                print(f"🪙 Synchronisation CoinGecko pour {symbol}")
+                crypto_data = get_crypto_data(symbol)
+                if crypto_data:
+                    asset.name = crypto_data.get('name', asset.name)
+                    asset.sector = crypto_data.get('sector', asset.sector)
+                    asset.industry = crypto_data.get('industry', asset.industry)
+                    asset.market_cap = crypto_data.get('market_cap', asset.market_cap)
+                    asset.price_history = crypto_data.get('price_history', asset.price_history)
+                    asset.save()
+                    print(f"✅ {symbol} synchronisé avec CoinGecko")
+                else:
+                    print(f"⚠️ Pas de données CoinGecko pour {symbol}")
+            else:
+                print(f"📈 Synchronisation Yahoo pour {symbol}")
+                yahoo_data = get_yahoo_data(symbol)
+                if yahoo_data:
+                    asset.name = yahoo_data.get('name', asset.name)
+                    asset.sector = yahoo_data.get('sector', asset.sector)
+                    asset.industry = yahoo_data.get('industry', asset.industry)
+                    asset.market_cap = yahoo_data.get('market_cap', asset.market_cap)
+                    asset.price_history = yahoo_data.get('price_history', asset.price_history)
+                    asset.save()
+                    print(f"✅ {symbol} synchronisé avec Yahoo")
+                else:
+                    print(f"⚠️ Pas de données Yahoo pour {symbol}")
+            
+            return JsonResponse({
+                'success': True, 
+                'message': f'Asset {symbol} créé avec succès',
+                'asset_id': asset.id
+            })
+            
+        except json.JSONDecodeError:
+            return JsonResponse({'success': False, 'error': 'Données JSON invalides'})
+        except Exception as e:
+            return JsonResponse({'success': False, 'error': str(e)})
+    
+    return JsonResponse({'success': False, 'error': 'Méthode non autorisée'})
+
+def get_asset_price_history(request, asset_id):
+    """Récupère l'historique des prix d'un Asset"""
+    print(f"🔍 Requête historique pour asset ID: {asset_id}")
+    
+    try:
+        asset = Asset.objects.get(id=asset_id)
+        print(f"✅ Asset trouvé: {asset.symbol} - {asset.name}")
+        print(f"📊 Historique: {asset.price_history[:100]}..." if asset.price_history else "Aucun historique")
+        
+        if not asset.price_history or asset.price_history == 'xxxx':
+            print(f"⚠️ Pas d'historique pour {asset.symbol}")
+            return JsonResponse({
+                'success': False, 
+                'error': 'Aucun historique disponible pour cet asset'
+            })
+        
+        # Parser l'historique JSON
+        try:
+            price_data = json.loads(asset.price_history)
+            print(f"📊 Données parsées: {len(price_data)} bougies")
+            if price_data:
+                print(f"📊 Première bougie: {price_data[0]}")
+        except json.JSONDecodeError as e:
+            print(f"❌ Erreur JSON: {e}")
+            return JsonResponse({
+                'success': False, 
+                'error': 'Format d\'historique invalide'
+            })
+        
+        # Convertir au format TradingView
+        chart_data = []
+        for candle in price_data:
+            # TradingView attend : {time: timestamp, open: float, high: float, low: float, close: float}
+            # Nos données ont : {"date": "2023-01-01", "open": 100, ...}
+            try:
+                # Convertir la date en timestamp
+                date_obj = datetime.strptime(candle['date'], '%Y-%m-%d')
+                timestamp = int(date_obj.timestamp())
+                
+                chart_data.append({
+                    'time': timestamp,
+                    'open': float(candle['open']),
+                    'high': float(candle['high']),
+                    'low': float(candle['low']),
+                    'close': float(candle['close']),
+                    'volume': float(candle.get('volume', 0))
+                })
+            except (KeyError, ValueError) as e:
+                print(f"⚠️ Erreur parsing candle: {e}")
+                continue
+        
+        # Trier par date
+        chart_data.sort(key=lambda x: x['time'])
+        
+        return JsonResponse({
+            'success': True,
+            'data': {
+                'symbol': asset.symbol_clean or asset.symbol,
+                'name': asset.name,
+                'candles': chart_data,
+                'period': '5Y' if len(chart_data) > 200 else '1Y' if len(chart_data) > 50 else '1M'
+            }
+        })
+        
+    except Asset.DoesNotExist:
+        return JsonResponse({
+            'success': False, 
+            'error': 'Asset non trouvé'
+        })
+    except Exception as e:
+        print(f"❌ Erreur dans get_asset_price_history: {e}")
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({
+            'success': False, 
+            'error': f'Erreur: {str(e)}'
+        })
+
 def update_all_assets_with_yahoo(request):
     """Met à jour tous les Assets existants avec les données Yahoo Finance"""
     if request.method == 'POST':
@@ -993,21 +1514,60 @@ def update_all_assets_with_yahoo(request):
                 try:
                     print(f"📈 Mise à jour de {asset.symbol}...")
                     
-                    # Récupérer les données Yahoo
-                    yahoo_data = get_yahoo_data(asset.symbol)
+                    # Nettoyer le symbole pour Yahoo Finance (enlever les extensions)
+                    # Utiliser le symbole nettoyé
+                    clean_symbol = asset.symbol_clean or asset.get_clean_symbol()
+                    clean_symbol = clean_symbol.strip()
                     
-                    if yahoo_data:
-                        # Mettre à jour l'Asset
-                        asset.name = yahoo_data.get('name', asset.name)
-                        asset.sector = yahoo_data.get('sector', asset.sector)
-                        asset.industry = yahoo_data.get('industry', asset.industry)
-                        asset.market_cap = yahoo_data.get('market_cap', asset.market_cap)
-                        asset.save()
+                    print(f"🔍 Symbole nettoyé pour Yahoo: {clean_symbol}")
+                    
+                    # Détecter si c'est une cryptomonnaie
+                    crypto_symbols = ["BTC", "ETH", "ETHW", "SOL", "AVAX", "BNB", "ADA", "DOT", "LINK", "UNI", "MATIC", "USDT", "USDC", "DAI", "LTC", "XRP", "DOGE", "SHIB", "TRX", "BCH", "XLM"]
+                    
+                    # Vérifier si c'est une crypto directe ou une paire EUR
+                    is_crypto = any(crypto in clean_symbol.upper() for crypto in crypto_symbols)
+                    
+                    # Ajouter la détection des paires EUR
+                    if clean_symbol.endswith('EUR'):
+                        base_symbol = clean_symbol[:-3]
+                        if base_symbol in crypto_symbols:
+                            is_crypto = True
+                            print(f"🔄 Paire EUR crypto détectée: {clean_symbol} -> {base_symbol}")
+                    
+                    if is_crypto:
+                        print(f"🪙 Détecté comme cryptomonnaie, utilisation de CoinGecko")
+                        crypto_data = get_crypto_data(clean_symbol)
                         
-                        updated_count += 1
-                        print(f"✅ {asset.symbol} mis à jour: {asset.sector} - {asset.industry} - {asset.market_cap}")
+                        if crypto_data:
+                            # Mettre à jour l'Asset avec les données CoinGecko
+                            asset.name = crypto_data.get('name', asset.name)
+                            asset.sector = crypto_data.get('sector', asset.sector)
+                            asset.industry = crypto_data.get('industry', asset.industry)
+                            asset.market_cap = crypto_data.get('market_cap', asset.market_cap)
+                            asset.price_history = crypto_data.get('price_history', asset.price_history)
+                            asset.save()
+                            
+                            updated_count += 1
+                            print(f"✅ {asset.symbol} mis à jour (CoinGecko): {asset.sector} - {asset.industry} - {asset.market_cap} - Historique: {len(json.loads(asset.price_history)) if asset.price_history != 'xxxx' else 0} jours")
+                        else:
+                            print(f"⚠️ Pas de données CoinGecko pour {asset.symbol} (symbole nettoyé: {clean_symbol})")
                     else:
-                        print(f"⚠️ Pas de données Yahoo pour {asset.symbol}")
+                        # Utiliser Yahoo Finance pour les actions/autres
+                        yahoo_data = get_yahoo_data(clean_symbol)
+                        
+                        if yahoo_data:
+                            # Mettre à jour l'Asset avec les données Yahoo
+                            asset.name = yahoo_data.get('name', asset.name)
+                            asset.sector = yahoo_data.get('sector', asset.sector)
+                            asset.industry = yahoo_data.get('industry', asset.industry)
+                            asset.market_cap = yahoo_data.get('market_cap', asset.market_cap)
+                            asset.price_history = yahoo_data.get('price_history', asset.price_history)
+                            asset.save()
+                            
+                            updated_count += 1
+                            print(f"✅ {asset.symbol} mis à jour (Yahoo): {asset.sector} - {asset.industry} - {asset.market_cap} - Historique: {len(json.loads(asset.price_history)) if asset.price_history != 'xxxx' else 0} bougies")
+                        else:
+                            print(f"⚠️ Pas de données Yahoo pour {asset.symbol} (symbole nettoyé: {clean_symbol})")
                         
                 except Exception as e:
                     print(f"❌ Erreur mise à jour {asset.symbol}: {e}")
@@ -1059,7 +1619,7 @@ def place_order_view(request):
             })
     
     # Récupérer les AssetTradable pour le formulaire
-    asset_tradables = AssetTradable.objects.select_related('asset', 'asset_type', 'market').all()
+    asset_tradables = AssetTradable.objects.select_related('asset_type', 'market').all()
     
     return render(request, 'trading_app/place_order.html', {
         'asset_tradables': asset_tradables
@@ -1320,12 +1880,19 @@ def binance_trades_ajax(request):
                 asset_type, _ = AssetType.objects.get_or_create(name='Crypto')
                 market, _ = Market.objects.get_or_create(name='Binance')
                 
+                # Trouver un AllAssets correspondant existant
+                all_asset = AssetTradable.find_matching_all_asset(symbol, 'binance')
+                
+                if not all_asset:
+                    print(f"⚠️ Aucun AllAssets trouvé pour {symbol}, trade ignoré")
+                    continue
+                
                 # Créer ou récupérer AssetTradable
                 asset_tradable, created = AssetTradable.objects.get_or_create(
-                    symbol=symbol,
+                    symbol=symbol.upper(),
                     platform='binance',
                     defaults={
-                        'asset': asset,
+                        'all_asset': all_asset,
                         'name': symbol,
                         'asset_type': asset_type,
                         'market': market
@@ -1638,10 +2205,17 @@ def binance_positions_ajax(request):
                 asset_type, _ = AssetType.objects.get_or_create(name='Crypto')
                 market, _ = Market.objects.get_or_create(name='Binance')
                 
+                # Trouver un AllAssets correspondant existant
+                all_asset = AssetTradable.find_matching_all_asset(asset_symbol, 'binance')
+                
+                if not all_asset:
+                    print(f"⚠️ Aucun AllAssets trouvé pour {asset_symbol}, position ignorée")
+                    continue
+                
                 asset_tradable, created = AssetTradable.objects.get_or_create(
-                    symbol=asset_symbol,
+                    symbol=asset_symbol.upper(),
                     platform='binance',
-                    defaults={'asset': asset, 'name': asset_symbol, 'asset_type': asset_type, 'market': market}
+                    defaults={'all_asset': all_asset, 'name': asset_symbol, 'asset_type': asset_type, 'market': market}
                 )
                 
                 position_size = float(position_data.get('total', 0))
@@ -1670,7 +2244,7 @@ def binance_positions_ajax(request):
                 continue
         
         # Récupérer toutes les positions sauvegardées pour l'affichage
-        saved_positions = Position.objects.filter(user=request.user).select_related('asset_tradable__asset')
+        saved_positions = Position.objects.filter(user=request.user).select_related('asset_tradable')
         
         formatted_positions = []
         for position in saved_positions:
@@ -1678,7 +2252,7 @@ def binance_positions_ajax(request):
                 'id': position.id,
                 'asset_name': position.asset_tradable.name,
                 'asset_symbol': position.asset_tradable.symbol,
-                'underlying_asset_name': position.asset_tradable.asset.name,
+                'underlying_asset_name': position.asset_tradable.name,
                 'size': str(position.size),
                 'entry_price': str(position.entry_price),
                 'current_price': str(position.current_price),
@@ -1701,160 +2275,7 @@ def binance_positions_ajax(request):
         print(f"❌ Erreur AJAX positions Binance: {e}")
         return JsonResponse({'success': False, 'error': str(e)})
 
-def database_schema(request):
-    """Vue pour afficher le diagramme de la structure de la base de données"""
-    
-    # Définir la structure de la base de données
-    schema_data = {
-        'tables': [
-            {
-                'name': 'User',
-                'description': 'Utilisateurs Django (auth)',
-                'fields': [
-                    {'name': 'id', 'type': 'IntegerField', 'primary_key': True},
-                    {'name': 'username', 'type': 'CharField', 'max_length': 150},
-                    {'name': 'email', 'type': 'EmailField'},
-                    {'name': 'password', 'type': 'CharField'},
-                    {'name': 'is_active', 'type': 'BooleanField'},
-                    {'name': 'date_joined', 'type': 'DateTimeField'},
-                ],
-                'color': '#e3f2fd'
-            },
-            {
-                'name': 'AssetType',
-                'description': 'Types d\'actifs (Action, ETF, Crypto, etc.)',
-                'fields': [
-                    {'name': 'id', 'type': 'IntegerField', 'primary_key': True},
-                    {'name': 'name', 'type': 'CharField', 'max_length': 50, 'unique': True},
-                    {'name': 'platform_id', 'type': 'CharField', 'max_length': 50},
-                ],
-                'color': '#f3e5f5'
-            },
-            {
-                'name': 'Market',
-                'description': 'Marchés (NASDAQ, NYSE, EURONEXT, etc.)',
-                'fields': [
-                    {'name': 'id', 'type': 'IntegerField', 'primary_key': True},
-                    {'name': 'name', 'type': 'CharField', 'max_length': 50, 'unique': True},
-                    {'name': 'platform_id', 'type': 'CharField', 'max_length': 50},
-                ],
-                'color': '#e8f5e8'
-            },
-            {
-                'name': 'Asset',
-                'description': 'Actif sous-jacent (peut avoir plusieurs versions tradables)',
-                'fields': [
-                    {'name': 'id', 'type': 'IntegerField', 'primary_key': True},
-                    {'name': 'symbol', 'type': 'CharField', 'max_length': 20, 'unique': True},
-                    {'name': 'name', 'type': 'CharField', 'max_length': 100},
-                    {'name': 'sector', 'type': 'CharField', 'max_length': 100},
-                    {'name': 'industry', 'type': 'CharField', 'max_length': 100},
-                    {'name': 'market_cap', 'type': 'FloatField'},
-                    {'name': 'price_history', 'type': 'TextField'},
-                ],
-                'color': '#fff3e0'
-            },
-            {
-                'name': 'AssetTradable',
-                'description': 'Actifs tradables sur une plateforme spécifique',
-                'fields': [
-                    {'name': 'id', 'type': 'IntegerField', 'primary_key': True},
-                    {'name': 'asset_id', 'type': 'ForeignKey', 'to': 'Asset'},
-                    {'name': 'symbol', 'type': 'CharField', 'max_length': 20},
-                    {'name': 'name', 'type': 'CharField', 'max_length': 100},
-                    {'name': 'platform', 'type': 'CharField', 'max_length': 20},
-                    {'name': 'asset_type_id', 'type': 'ForeignKey', 'to': 'AssetType'},
-                    {'name': 'market_id', 'type': 'ForeignKey', 'to': 'Market'},
-                    {'name': 'created_at', 'type': 'DateTimeField'},
-                ],
-                'color': '#fce4ec'
-            },
-            {
-                'name': 'BrokerCredentials',
-                'description': 'Credentials des courtiers',
-                'fields': [
-                    {'name': 'id', 'type': 'IntegerField', 'primary_key': True},
-                    {'name': 'user_id', 'type': 'ForeignKey', 'to': 'User'},
-                    {'name': 'broker_type', 'type': 'CharField', 'max_length': 20},
-                    {'name': 'name', 'type': 'CharField', 'max_length': 100},
-                    {'name': 'environment', 'type': 'CharField', 'max_length': 20},
-                    {'name': 'saxo_client_id', 'type': 'CharField', 'max_length': 100},
-                    {'name': 'saxo_client_secret', 'type': 'CharField', 'max_length': 100},
-                    {'name': 'saxo_access_token', 'type': 'TextField'},
-                    {'name': 'saxo_refresh_token', 'type': 'TextField'},
-                    {'name': 'binance_api_key', 'type': 'CharField', 'max_length': 100},
-                    {'name': 'binance_api_secret', 'type': 'CharField', 'max_length': 100},
-                    {'name': 'is_active', 'type': 'BooleanField'},
-                ],
-                'color': '#e0f2f1'
-            },
-            {
-                'name': 'Strategy',
-                'description': 'Stratégies de trading',
-                'fields': [
-                    {'name': 'id', 'type': 'IntegerField', 'primary_key': True},
-                    {'name': 'name', 'type': 'CharField', 'max_length': 100, 'unique': True},
-                    {'name': 'description', 'type': 'TextField'},
-                    {'name': 'created_by_id', 'type': 'ForeignKey', 'to': 'User'},
-                    {'name': 'created_at', 'type': 'DateTimeField'},
-                ],
-                'color': '#f1f8e9'
-            },
-            {
-                'name': 'Position',
-                'description': 'Positions de trading',
-                'fields': [
-                    {'name': 'id', 'type': 'IntegerField', 'primary_key': True},
-                    {'name': 'user_id', 'type': 'ForeignKey', 'to': 'User'},
-                    {'name': 'asset_tradable_id', 'type': 'ForeignKey', 'to': 'AssetTradable'},
-                    {'name': 'size', 'type': 'DecimalField', 'max_digits': 15, 'decimal_places': 2},
-                    {'name': 'entry_price', 'type': 'DecimalField', 'max_digits': 15, 'decimal_places': 5},
-                    {'name': 'current_price', 'type': 'DecimalField', 'max_digits': 15, 'decimal_places': 5},
-                    {'name': 'side', 'type': 'CharField', 'max_length': 4},
-                    {'name': 'status', 'type': 'CharField', 'max_length': 10},
-                    {'name': 'pnl', 'type': 'DecimalField', 'max_digits': 15, 'decimal_places': 2},
-                    {'name': 'created_at', 'type': 'DateTimeField'},
-                    {'name': 'updated_at', 'type': 'DateTimeField'},
-                ],
-                'color': '#fff8e1'
-            },
-            {
-                'name': 'Trade',
-                'description': 'Trades exécutés',
-                'fields': [
-                    {'name': 'id', 'type': 'IntegerField', 'primary_key': True},
-                    {'name': 'user_id', 'type': 'ForeignKey', 'to': 'User'},
-                    {'name': 'asset_tradable_id', 'type': 'ForeignKey', 'to': 'AssetTradable'},
-                    {'name': 'size', 'type': 'DecimalField', 'max_digits': 15, 'decimal_places': 2},
-                    {'name': 'price', 'type': 'DecimalField', 'max_digits': 15, 'decimal_places': 5},
-                    {'name': 'side', 'type': 'CharField', 'max_length': 4},
-                    {'name': 'timestamp', 'type': 'DateTimeField'},
-                    {'name': 'platform', 'type': 'CharField', 'max_length': 20},
-                ],
-                'color': '#fafafa'
-            }
-        ],
-        'relationships': [
-            {'from': 'User', 'to': 'BrokerCredentials', 'type': 'OneToMany'},
-            {'from': 'User', 'to': 'Strategy', 'type': 'OneToMany'},
-            {'from': 'User', 'to': 'Position', 'type': 'OneToMany'},
-            {'from': 'User', 'to': 'Trade', 'type': 'OneToMany'},
-            {'from': 'Asset', 'to': 'AssetTradable', 'type': 'OneToMany'},
-            {'from': 'AssetType', 'to': 'AssetTradable', 'type': 'OneToMany'},
-            {'from': 'Market', 'to': 'AssetTradable', 'type': 'OneToMany'},
-            {'from': 'AssetTradable', 'to': 'Position', 'type': 'OneToMany'},
-            {'from': 'AssetTradable', 'to': 'Trade', 'type': 'OneToMany'},
-        ]
-    }
-    
-    return render(request, 'trading_app/database_schema.html', {
-        'schema_data': json.dumps(schema_data, cls=DjangoJSONEncoder),
-    })
 
-
-def database_schema_manual(request):
-    """Vue pour afficher le schéma manuel de la base de données"""
-    return render(request, 'trading_app/database_schema_manual.html')
 
 
 @login_required
@@ -1964,4 +2385,9 @@ def search_all_assets(request):
         print(f"❌ Erreur: {str(e)}")
         logger.error(f"Erreur lors de la recherche d'actifs: {str(e)}")
         return JsonResponse({'results': [], 'error': str(e)})
+
+
+def kenza(request):
+    """Page spéciale pour Kenza"""
+    return render(request, 'trading_app/kenza.html')
 

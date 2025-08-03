@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Kenza - Trading App{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card shadow-lg border-0">
+                <div class="card-body text-center p-5">
+                    <div class="mb-4">
+                        <i class="fas fa-heart text-danger" style="font-size: 4rem;"></i>
+                    </div>
+                    <h1 class="display-4 text-primary mb-3">Bonjour Kenza !</h1>
+                    <p class="lead text-muted mb-4">
+                        Bienvenue sur votre page personnalisée de l'application de trading.
+                    </p>
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i>
+                        Cette page a été créée spécialement pour vous !
+                    </div>
+                    <div class="mt-4">
+                        <a href="/" class="btn btn-primary me-2">
+                            <i class="fas fa-home"></i> Retour à l'accueil
+                        </a>
+        
+                            <i class="fas fa-coins"></i> Voir les actifs
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 

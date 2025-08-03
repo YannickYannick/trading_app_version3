@@ -68,12 +68,22 @@ class BrokerService:
                             }
                         )
                         
+                        # Trouver un AllAssets correspondant existant
+                        all_asset = AssetTradable.find_matching_all_asset(asset_symbol, 'binance')
+                        
+                        if not all_asset:
+                            # Debug : afficher les symboles disponibles pour Binance
+                            available_symbols = AllAssets.objects.filter(platform='binance').values_list('symbol', flat=True)
+                            print(f"⚠️ Aucun AllAssets trouvé pour {asset_symbol}")
+                            print(f"📋 Symboles disponibles pour Binance: {list(available_symbols)}")
+                            continue
+                        
                         # Récupérer ou créer l'AssetTradable
                         asset_tradable, _ = AssetTradable.objects.get_or_create(
-                            symbol=asset_symbol,
+                            symbol=asset_symbol.upper(),
                             platform='binance',
                             defaults={
-                                'asset': asset,
+                                'all_asset': all_asset,
                                 'name': asset_symbol,
                                 'asset_type': asset_type,
                                 'market': market,
@@ -125,12 +135,19 @@ class BrokerService:
                         # en ajoutant un suffixe basé sur l'index
                         unique_symbol = f"{pos_data['symbol']}_{i}" if broker_credentials.broker_type == 'saxo' else pos_data['symbol']
                         
+                        # Trouver un AllAssets correspondant existant
+                        all_asset = AssetTradable.find_matching_all_asset(unique_symbol, broker_credentials.broker_type)
+                        
+                        if not all_asset:
+                            print(f"⚠️ Aucun AllAssets trouvé pour {unique_symbol}, position ignorée")
+                            continue
+                        
                         # Récupérer ou créer l'AssetTradable
                         asset_tradable, _ = AssetTradable.objects.get_or_create(
-                            symbol=unique_symbol,
+                            symbol=unique_symbol.upper(),
                             platform=broker_credentials.broker_type,
                             defaults={
-                                'asset': asset,
+                                'all_asset': all_asset,
                                 'name': pos_data.get('name', pos_data['symbol']),
                                 'asset_type': asset_type,
                                 'market': market,
@@ -206,12 +223,22 @@ class BrokerService:
                         }
                     )
                     
+                    # Trouver un AllAssets correspondant existant
+                    all_asset = AssetTradable.find_matching_all_asset(trade_data['symbol'], broker_credentials.broker_type)
+                    
+                    if not all_asset:
+                        # Debug : afficher les symboles disponibles
+                        available_symbols = AllAssets.objects.filter(platform=broker_credentials.broker_type).values_list('symbol', flat=True)
+                        print(f"⚠️ Aucun AllAssets trouvé pour {trade_data['symbol']}")
+                        print(f"📋 Symboles disponibles pour {broker_credentials.broker_type}: {list(available_symbols)}")
+                        continue
+                    
                     # Récupérer ou créer l'AssetTradable
                     asset_tradable, _ = AssetTradable.objects.get_or_create(
-                        symbol=trade_data['symbol'],
+                        symbol=trade_data['symbol'].upper(),
                         platform=broker_credentials.broker_type,
                         defaults={
-                            'asset': asset,
+                            'all_asset': all_asset,
                             'name': trade_data.get('name', trade_data['symbol']),
                             'asset_type': asset_type,
                             'market': market,

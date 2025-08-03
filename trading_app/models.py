@@ -24,10 +24,73 @@ class Market(models.Model):
     
     def __str__(self):
         return self.name
+class AllAssets(models.Model):
+    """Catalogue universel d'actifs récupérés depuis les APIs des brokers"""
+    symbol = models.CharField(max_length=50)
+    name = models.CharField(max_length=200)
+    platform = models.CharField(max_length=20, choices=BROKER_CHOICES)
+    asset_type = models.CharField(max_length=50)  # Stock, Crypto, ETF, Bond, etc.
+    market = models.CharField(max_length=50)  # NYSE, NASDAQ, SPOT, FUTURES, etc.
+    currency = models.CharField(max_length=10, default='USD')
+    exchange = models.CharField(max_length=100, blank=True)
+    is_tradable = models.BooleanField(default=True)
+    last_updated = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+
+    
+    def save(self, *args, **kwargs):
+        """Override save pour mettre le symbole en majuscules"""
+        if self.symbol:
+            self.symbol = self.symbol.upper()
+        super().save(*args, **kwargs)
+    
+    # Champs spécifiques Saxo
+    saxo_uic = models.IntegerField(null=True, blank=True)
+    saxo_exchange_id = models.CharField(max_length=20, blank=True)
+    saxo_country_code = models.CharField(max_length=10, blank=True)
+    
+    # Champs spécifiques Binance
+    binance_base_asset = models.CharField(max_length=20, blank=True)
+    binance_quote_asset = models.CharField(max_length=20, blank=True)
+    binance_status = models.CharField(max_length=20, blank=True)
+    
+    class Meta:
+        unique_together = ['symbol', 'platform']
+        indexes = [
+            models.Index(fields=['platform', 'asset_type']),
+            models.Index(fields=['symbol']),
+            models.Index(fields=['name']),
+        ]
+    
+    def __str__(self):
+        return f"{self.symbol} ({self.platform}) - {self.name}"
+    
+    @property
+    def display_name(self):
+        """Nom d'affichage pour l'autocomplétion"""
+        return f"{self.symbol} - {self.name}"
+    
+    def get_clean_symbol(self):
+        """Retourne le symbole sans extensions"""
+        if not self.symbol:
+            return ""
+        # Enlever les extensions :XNAS, _0, _1, etc.
+        clean = self.symbol.split(':')[0]  # Enlever :XNAS
+        clean = clean.split('_')[0]        # Enlever _0, _1, etc.
+        return clean.upper()
 
 class Asset(models.Model):
-    """Actif sous-jacent (peut avoir plusieurs versions tradables)"""
+    """Actif sous-jacent avec données enrichies (secteur, industrie, market cap, historique)"""
+    # Référence optionnelle vers AllAssets
+    all_asset = models.ForeignKey(AllAssets, on_delete=models.SET_NULL, null=True, blank=True, related_name='enriched_assets')
+    
+    # Symbole original (peut contenir des extensions)
     symbol = models.CharField(max_length=20, unique=True)
+    
+    # Symbole nettoyé (sans extensions, pour affichage)
+    symbol_clean = models.CharField(max_length=20, blank=True)
+    
     name = models.CharField(max_length=100)
     sector = models.CharField(max_length=100, default='xxxx')
     industry = models.CharField(max_length=100, default='xxxx')
@@ -35,23 +98,107 @@ class Asset(models.Model):
     price_history = models.TextField(default='xxxx')
     
     def __str__(self):
-        return self.symbol
+        return self.symbol_clean or self.symbol
+    
+    def save(self, *args, **kwargs):
+        """Override save pour générer automatiquement symbol_clean"""
+        if self.symbol and not self.symbol_clean:
+            self.symbol_clean = self.get_clean_symbol()
+        super().save(*args, **kwargs)
+    
+    def get_clean_symbol(self):
+        """Retourne le symbole sans extensions"""
+        if not self.symbol:
+            return ""
+        # Enlever les extensions :XNAS, _0, _1, etc.
+        clean = self.symbol.split(':')[0]  # Enlever :XNAS
+        clean = clean.split('_')[0]        # Enlever _0, _1, etc.
+        return clean.upper()
+    
+    @classmethod
+    def find_by_all_asset_symbol(cls, symbol):
+        """Trouve un Asset basé sur un symbole AllAssets"""
+        clean_symbol = symbol.split(':')[0].split('_')[0].upper()
+        return cls.objects.filter(symbol_clean=clean_symbol).first()
 
 class AssetTradable(models.Model):
     """Actifs tradables sur une plateforme spécifique"""
-    asset = models.ForeignKey(Asset, on_delete=models.CASCADE, related_name='tradable_versions')
+    # Référence obligatoire vers AllAssets
+    all_asset = models.ForeignKey(AllAssets, on_delete=models.CASCADE, related_name='tradable_versions')
+    
+    # Données copiées depuis AllAssets (pour garder l'AssetTradable même si AllAssets est supprimé)
     symbol = models.CharField(max_length=20)
     name = models.CharField(max_length=100)
     platform = models.CharField(max_length=20, choices=BROKER_CHOICES)
     asset_type = models.ForeignKey(AssetType, on_delete=models.CASCADE)
     market = models.ForeignKey(Market, on_delete=models.CASCADE)
+    
+    # Champs additionnels spécifiques à l'AssetTradable
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
         unique_together = ['symbol', 'platform']  # Un symbole unique par plateforme
     
     def __str__(self):
         return f"{self.symbol} ({self.platform})"
+    
+    def save(self, *args, **kwargs):
+        """Override save pour mettre le symbole en majuscules"""
+        if self.symbol:
+            self.symbol = self.symbol.upper()
+        super().save(*args, **kwargs)
+    
+    def copy_from_all_asset(self, all_asset):
+        """Copie les données depuis un AllAssets"""
+        self.all_asset = all_asset
+        self.symbol = all_asset.symbol.upper()  # Forcer en majuscules
+        self.name = all_asset.name
+        self.platform = all_asset.platform
+        
+        # Créer ou récupérer AssetType et Market
+        asset_type, _ = AssetType.objects.get_or_create(name=all_asset.asset_type)
+        market, _ = Market.objects.get_or_create(name=all_asset.market)
+        
+        self.asset_type = asset_type
+        self.market = market
+        self.save()
+    
+    @classmethod
+    def find_matching_all_asset(cls, symbol, platform):
+        """Trouve un AllAssets correspondant en ignorant la casse et les extensions"""
+        # Nettoyer le symbole : enlever les extensions (_0, _1, etc.) et mettre en majuscules
+        base_symbol = symbol.upper().split('_')[0]
+        
+        # Chercher dans AllAssets avec différentes variations
+        all_assets = AllAssets.objects.filter(
+            platform=platform
+        )
+        
+        for all_asset in all_assets:
+            # Comparer les symboles de base (sans extensions)
+            all_asset_base = all_asset.symbol.upper().split('_')[0]
+            
+            # Correspondance exacte
+            if all_asset_base == base_symbol:
+                return all_asset
+            
+            # Pour Binance : gérer les différents formats de symboles
+            if platform == 'binance':
+                # Essayer de matcher BTC avec BTCUSDT, BTC/USDT, etc.
+                if all_asset_base.startswith(base_symbol) and len(all_asset_base) > len(base_symbol):
+                    # Vérifier si c'est un format de paire (BTCUSDT, BTC/USDT, etc.)
+                    remaining = all_asset_base[len(base_symbol):]
+                    if remaining in ['USDT', 'USD', 'BTC', 'ETH', 'BNB', 'BUSD', '/USDT', '/USD', '/BTC', '/ETH', '/BNB', '/BUSD']:
+                        return all_asset
+                
+                # Essayer de matcher BTCUSDT avec BTC
+                if base_symbol.startswith(all_asset_base) and len(base_symbol) > len(all_asset_base):
+                    remaining = base_symbol[len(all_asset_base):]
+                    if remaining in ['USDT', 'USD', 'BTC', 'ETH', 'BNB', 'BUSD']:
+                        return all_asset
+        
+        return None
 
 class BrokerCredentials(models.Model):
     """Modèle pour stocker les credentials des courtiers"""
@@ -157,41 +304,3 @@ class Trade(models.Model):
     def __str__(self):
         return f"{self.side} {self.size} {self.asset_tradable.symbol} @ {self.price}"
 
-class AllAssets(models.Model):
-    """Catalogue universel d'actifs récupérés depuis les APIs des brokers"""
-    symbol = models.CharField(max_length=50)
-    name = models.CharField(max_length=200)
-    platform = models.CharField(max_length=20, choices=BROKER_CHOICES)
-    asset_type = models.CharField(max_length=50)  # Stock, Crypto, ETF, Bond, etc.
-    market = models.CharField(max_length=50)  # NYSE, NASDAQ, SPOT, FUTURES, etc.
-    currency = models.CharField(max_length=10, default='USD')
-    exchange = models.CharField(max_length=100, blank=True)
-    is_tradable = models.BooleanField(default=True)
-    last_updated = models.DateTimeField(auto_now=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    
-    # Champs spécifiques Saxo
-    saxo_uic = models.IntegerField(null=True, blank=True)
-    saxo_exchange_id = models.CharField(max_length=20, blank=True)
-    saxo_country_code = models.CharField(max_length=10, blank=True)
-    
-    # Champs spécifiques Binance
-    binance_base_asset = models.CharField(max_length=20, blank=True)
-    binance_quote_asset = models.CharField(max_length=20, blank=True)
-    binance_status = models.CharField(max_length=20, blank=True)
-    
-    class Meta:
-        unique_together = ['symbol', 'platform']
-        indexes = [
-            models.Index(fields=['platform', 'asset_type']),
-            models.Index(fields=['symbol']),
-            models.Index(fields=['name']),
-        ]
-    
-    def __str__(self):
-        return f"{self.symbol} ({self.platform}) - {self.name}"
-    
-    @property
-    def display_name(self):
-        """Nom d'affichage pour l'autocomplétion"""
-        return f"{self.symbol} - {self.name}"
