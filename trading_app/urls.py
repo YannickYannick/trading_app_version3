@@ -18,6 +18,7 @@ urlpatterns = [
     path('trades/binance/', views.binance_trades_ajax, name='binance_trades_ajax'),
     path('trades/delete-all/', views.delete_all_trades, name='delete_all_trades'),
     path('trades/update-all/', views.update_all_trades, name='update_all_trades'),
+    path('trades/chart-data/<str:asset_symbol>/', views.get_asset_price_for_chart, name='get_asset_price_for_chart'),
     
     path('positions/tabulator/', views.position_tabulator, name='position_tabulator'),
     path('positions/binance/', views.binance_positions_ajax, name='binance_positions_ajax'),

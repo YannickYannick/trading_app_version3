@@ -52,6 +52,83 @@
 
 <div id="trade-table"></div>
 
+<!-- Section Graphique des Trades -->
+<div class="mt-4">
+    <div class="card">
+        <div class="card-header">
+            <h5 class="mb-0">
+                <i class="fas fa-chart-line"></i> Graphique des Trades par Instrument
+            </h5>
+        </div>
+        <div class="card-body">
+            <!-- Sélecteur d'instrument -->
+            <div class="row mb-3">
+                <div class="col-md-4">
+                    <label for="instrumentSelector" class="form-label">Sélectionner un instrument :</label>
+                    <select class="form-select" id="instrumentSelector">
+                        <option value="">Choisir un instrument...</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label for="periodSelector" class="form-label">Période :</label>
+                    <select class="form-select" id="periodSelector">
+                        <option value="all">Tous les trades</option>
+                        <option value="30">30 derniers jours</option>
+                        <option value="7">7 derniers jours</option>
+                        <option value="1">Dernières 24h</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label for="chartTypeSelector" class="form-label">Type de graphique :</label>
+                    <select class="form-select" id="chartTypeSelector">
+                        <option value="candlestick">Chandeliers</option>
+                        <option value="line">Ligne</option>
+                    </select>
+                </div>
+            </div>
+            
+            <!-- Statistiques -->
+            <div class="row mb-3" id="tradeStats" style="display: none;">
+                <div class="col-md-3">
+                    <div class="card bg-light">
+                        <div class="card-body text-center">
+                            <h6 class="card-title">Total Trades</h6>
+                            <h4 id="totalTrades">0</h4>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card bg-light">
+                        <div class="card-body text-center">
+                            <h6 class="card-title">P&L Total</h6>
+                            <h4 id="totalPnL">0.00</h4>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card bg-light">
+                        <div class="card-body text-center">
+                            <h6 class="card-title">Volume Total</h6>
+                            <h4 id="totalVolume">0.00</h4>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card bg-light">
+                        <div class="card-body text-center">
+                            <h6 class="card-title">Prix Moyen</h6>
+                            <h4 id="avgPrice">0.00</h4>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Conteneur du graphique -->
+            <div id="tradingChart" style="height: 500px; width: 100%;"></div>
+        </div>
+    </div>
+</div>
+
 <!-- Modal pour sélectionner les colonnes -->
 <div class="modal fade" id="columnSelectorModal" tabindex="-1" aria-labelledby="columnSelectorModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg">
@@ -96,9 +173,15 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tabulator/5.0.3/js/tabulator.min.js"></script>
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+<!-- TradingView Lightweight Charts -->
+<script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
 
 <script>
     var tabledata = JSON.parse('{{ data_trades|default:"[]"|escapejs }}');
+    var chart = null;
+    var candlestickSeries = null;
+    var lineSeries = null;
+    var tradeMarkers = [];
     
     // Définition de toutes les colonnes disponibles
     var allColumns = [
@@ -254,6 +337,279 @@
     // Réinitialiser le sélecteur quand le modal s'ouvre
     $('#columnSelectorModal').on('show.bs.modal', function () {
         initColumnSelector();
+    });
+    
+    // Initialiser le sélecteur d'instruments
+    function initInstrumentSelector() {
+        const selector = document.getElementById('instrumentSelector');
+        const instruments = [...new Set(tabledata.map(trade => trade.symbol).filter(symbol => symbol && symbol !== 'N/A'))];
+        
+        instruments.forEach(instrument => {
+            const option = document.createElement('option');
+            option.value = instrument;
+            option.textContent = instrument;
+            selector.appendChild(option);
+        });
+    }
+    
+    // Initialiser le graphique TradingView
+    function initChart() {
+        const chartContainer = document.getElementById('tradingChart');
+        
+        if (chart) {
+            chart.remove();
+        }
+        
+        chart = LightweightCharts.createChart(chartContainer, {
+            width: chartContainer.clientWidth,
+            height: chartContainer.clientHeight,
+            layout: {
+                backgroundColor: '#ffffff',
+                textColor: '#333',
+            },
+            grid: {
+                vertLines: {
+                    color: '#f0f0f0',
+                },
+                horzLines: {
+                    color: '#f0f0f0',
+                },
+            },
+            crosshair: {
+                mode: LightweightCharts.CrosshairMode.Normal,
+            },
+            rightPriceScale: {
+                borderColor: '#cccccc',
+            },
+            timeScale: {
+                borderColor: '#cccccc',
+                timeVisible: true,
+                secondsVisible: false,
+            },
+        });
+        
+        // Créer les séries
+        candlestickSeries = chart.addCandlestickSeries({
+            upColor: '#26a69a',
+            downColor: '#ef5350',
+            borderVisible: false,
+            wickUpColor: '#26a69a',
+            wickDownColor: '#ef5350',
+        });
+        
+        lineSeries = chart.addLineSeries({
+            color: '#2196F3',
+            lineWidth: 2,
+        });
+        
+        // Gérer le redimensionnement
+        window.addEventListener('resize', () => {
+            chart.applyOptions({
+                width: chartContainer.clientWidth,
+                height: chartContainer.clientHeight,
+            });
+        });
+    }
+    
+    // Charger les données de prix pour un instrument
+    function loadPriceData(symbol) {
+        return new Promise((resolve, reject) => {
+            $.ajax({
+                url: `/trades/chart-data/${encodeURIComponent(symbol)}/`,
+                type: 'GET',
+                success: function(response) {
+                    if (response.success) {
+                        resolve(response.data);
+                    } else {
+                        console.warn('Données de prix non disponibles, utilisation de données simulées');
+                        // Fallback vers des données simulées
+                        resolve(generateSimulatedData(symbol));
+                    }
+                },
+                error: function(xhr) {
+                    console.warn('Erreur récupération données prix, utilisation de données simulées');
+                    // Fallback vers des données simulées
+                    resolve(generateSimulatedData(symbol));
+                }
+            });
+        });
+    }
+    
+    // Générer des données simulées en cas d'erreur
+    function generateSimulatedData(symbol) {
+        const now = new Date();
+        const data = [];
+        
+        for (let i = 30; i >= 0; i--) {
+            const time = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+            const basePrice = 100 + Math.random() * 50;
+            const open = basePrice;
+            const high = basePrice + Math.random() * 10;
+            const low = basePrice - Math.random() * 10;
+            const close = basePrice + (Math.random() - 0.5) * 10;
+            
+            data.push({
+                time: Math.floor(time.getTime() / 1000),
+                open: open,
+                high: high,
+                low: low,
+                close: close,
+            });
+        }
+        
+        return data;
+    }
+    
+    // Afficher les trades sur le graphique
+    async function displayTradesOnChart(symbol, period) {
+        if (!chart) return;
+        
+        // Filtrer les trades pour cet instrument et cette période
+        let filteredTrades = tabledata.filter(trade => trade.symbol === symbol);
+        
+        if (period !== 'all') {
+            const cutoffDate = new Date();
+            cutoffDate.setDate(cutoffDate.getDate() - parseInt(period));
+            filteredTrades = filteredTrades.filter(trade => {
+                const tradeDate = new Date(trade.timestamp);
+                return tradeDate >= cutoffDate;
+            });
+        }
+        
+        // Charger les données de prix
+        const priceData = await loadPriceData(symbol);
+        
+        // Afficher les données selon le type de graphique
+        const chartType = document.getElementById('chartTypeSelector').value;
+        
+        if (chartType === 'candlestick') {
+            candlestickSeries.setData(priceData);
+            lineSeries.setData([]);
+        } else {
+            const lineData = priceData.map(candle => ({
+                time: candle.time,
+                value: candle.close,
+            }));
+            lineSeries.setData(lineData);
+            candlestickSeries.setData([]);
+        }
+        
+        // Ajouter les marqueurs de trades
+        clearTradeMarkers();
+        
+        filteredTrades.forEach(trade => {
+            const tradeTime = Math.floor(new Date(trade.timestamp).getTime() / 1000);
+            const price = parseFloat(trade.opening_price);
+            
+            // Trouver le point le plus proche dans les données de prix
+            const closestPrice = priceData.reduce((prev, curr) => {
+                return Math.abs(curr.time - tradeTime) < Math.abs(prev.time - tradeTime) ? curr : prev;
+            });
+            
+            const marker = chart.addCandlestickSeries({
+                lastValueVisible: false,
+                priceLineVisible: false,
+            });
+            
+            const markerData = [{
+                time: closestPrice.time,
+                open: price,
+                high: price,
+                low: price,
+                close: price,
+            }];
+            
+            marker.setData(markerData);
+            
+            // Ajouter une annotation
+            const color = trade.direction === 'BUY' ? '#26a69a' : '#ef5350';
+            const shape = trade.direction === 'BUY' ? 'arrowUp' : 'arrowDown';
+            
+            chart.addCandlestickSeries({
+                lastValueVisible: false,
+                priceLineVisible: false,
+                upColor: color,
+                downColor: color,
+            }).setData([{
+                time: closestPrice.time,
+                open: price,
+                high: price + 2,
+                low: price - 2,
+                close: price,
+            }]);
+            
+            tradeMarkers.push(marker);
+        });
+        
+        // Calculer et afficher les statistiques
+        calculateAndDisplayStats(filteredTrades);
+        
+        // Afficher les statistiques
+        document.getElementById('tradeStats').style.display = 'block';
+    }
+    
+    // Effacer les marqueurs de trades
+    function clearTradeMarkers() {
+        tradeMarkers.forEach(marker => {
+            chart.removeSeries(marker);
+        });
+        tradeMarkers = [];
+    }
+    
+    // Calculer et afficher les statistiques
+    function calculateAndDisplayStats(trades) {
+        const totalTrades = trades.length;
+        const totalPnL = trades.reduce((sum, trade) => sum + (parseFloat(trade.profit_loss) || 0), 0);
+        const totalVolume = trades.reduce((sum, trade) => sum + (parseFloat(trade.size) || 0), 0);
+        const avgPrice = trades.reduce((sum, trade) => sum + (parseFloat(trade.opening_price) || 0), 0) / totalTrades;
+        
+        document.getElementById('totalTrades').textContent = totalTrades;
+        document.getElementById('totalPnL').textContent = totalPnL.toFixed(2);
+        document.getElementById('totalPnL').style.color = totalPnL >= 0 ? 'green' : 'red';
+        document.getElementById('totalVolume').textContent = totalVolume.toFixed(2);
+        document.getElementById('avgPrice').textContent = avgPrice.toFixed(2);
+    }
+    
+    // Événements pour le graphique
+    document.getElementById('instrumentSelector').addEventListener('change', async function() {
+        const symbol = this.value;
+        const period = document.getElementById('periodSelector').value;
+        
+        if (symbol) {
+            await displayTradesOnChart(symbol, period);
+        } else {
+            // Effacer le graphique
+            if (chart) {
+                candlestickSeries.setData([]);
+                lineSeries.setData([]);
+                clearTradeMarkers();
+                document.getElementById('tradeStats').style.display = 'none';
+            }
+        }
+    });
+    
+    document.getElementById('periodSelector').addEventListener('change', async function() {
+        const symbol = document.getElementById('instrumentSelector').value;
+        const period = this.value;
+        
+        if (symbol) {
+            await displayTradesOnChart(symbol, period);
+        }
+    });
+    
+    document.getElementById('chartTypeSelector').addEventListener('change', async function() {
+        const symbol = document.getElementById('instrumentSelector').value;
+        const period = document.getElementById('periodSelector').value;
+        
+        if (symbol) {
+            await displayTradesOnChart(symbol, period);
+        }
+    });
+    
+    // Initialiser le graphique et le sélecteur d'instruments
+    document.addEventListener('DOMContentLoaded', function() {
+        initChart();
+        initInstrumentSelector();
     });
     
     function buttonFormatter(cell) {
@@ -459,6 +815,9 @@
                     // Remplacer les données de la table
                     tabledata = response.trades;
                     table.replaceData(tabledata);
+                    
+                    // Mettre à jour le sélecteur d'instruments
+                    initInstrumentSelector();
                     
                     if (response.saved_count > 0) {
                         alert(`✅ ${response.saved_count} nouveaux trades Binance (${mode}) ajoutés !\n📊 ${response.trades.length} trades affichés au total.\n\n${response.message}`);

@@ -93,7 +93,7 @@ class BrokerService:
                         # Récupérer ou créer la Position
                         position, created = Position.objects.get_or_create(
                             user=broker_credentials.user,
-                            asset=asset,
+                            asset_tradable=asset_tradable,
                             defaults={
                                 'size': Decimal(str(position_size)),
                                 'entry_price': Decimal('0.0'),  # Pas de prix d'entrée pour les balances
@@ -146,34 +146,61 @@ class BrokerService:
                             print(f"⚠️ Aucun AllAssets trouvé pour {original_symbol}, position ignorée")
                             continue
                         
-                        # Récupérer ou créer l'AssetTradable (utiliser le symbole original)
-                        asset_tradable, _ = AssetTradable.objects.get_or_create(
-                            symbol=original_symbol.upper(),
-                            platform=broker_credentials.broker_type,
-                            defaults={
-                                'all_asset': all_asset,
-                                'name': pos_data.get('name', original_symbol),
-                                'asset_type': asset_type,
-                                'market': market,
-                            }
-                        )
+                        # Pour Saxo, créer un AssetTradable unique avec suffixe pour chaque position
+                        if broker_credentials.broker_type == 'saxo':
+                            # Créer un AssetTradable unique avec le suffixe
+                            asset_tradable, _ = AssetTradable.objects.get_or_create(
+                                symbol=unique_symbol.upper(),
+                                platform=broker_credentials.broker_type,
+                                defaults={
+                                    'all_asset': all_asset,
+                                    'name': pos_data.get('name', original_symbol),
+                                    'asset_type': asset_type,
+                                    'market': market,
+                                }
+                            )
+                            
+                            # Créer une nouvelle position (pas get_or_create car on veut des positions multiples)
+                            position = Position.objects.create(
+                                user=broker_credentials.user,
+                                asset_tradable=asset_tradable,
+                                size=Decimal(str(pos_data.get('size', 0))),
+                                entry_price=Decimal(str(pos_data.get('entry_price', 0))),
+                                current_price=Decimal(str(pos_data.get('current_price', 0))),
+                                side=pos_data.get('side', 'BUY'),
+                                status=pos_data.get('status', 'OPEN'),
+                                pnl=Decimal(str(pos_data.get('pnl', 0))),
+                            )
+                        else:
+                            # Pour les autres brokers, utiliser la logique existante
+                            asset_tradable, _ = AssetTradable.objects.get_or_create(
+                                symbol=original_symbol.upper(),
+                                platform=broker_credentials.broker_type,
+                                defaults={
+                                    'all_asset': all_asset,
+                                    'name': pos_data.get('name', original_symbol),
+                                    'asset_type': asset_type,
+                                    'market': market,
+                                }
+                            )
+                            
+                            # Récupérer ou créer la Position
+                            position, created = Position.objects.get_or_create(
+                                user=broker_credentials.user,
+                                asset_tradable=asset_tradable,
+                                defaults={
+                                    'size': Decimal(str(pos_data.get('size', 0))),
+                                    'entry_price': Decimal(str(pos_data.get('entry_price', 0))),
+                                    'current_price': Decimal(str(pos_data.get('current_price', 0))),
+                                    'side': pos_data.get('side', 'BUY'),
+                                    'status': pos_data.get('status', 'OPEN'),
+                                    'pnl': Decimal(str(pos_data.get('pnl', 0))),
+                                }
+                            )
                         
-                        # Récupérer ou créer la Position
-                        position, created = Position.objects.get_or_create(
-                            user=broker_credentials.user,
-                            asset=asset,
-                            defaults={
-                                'size': Decimal(str(pos_data.get('size', 0))),
-                                'entry_price': Decimal(str(pos_data.get('entry_price', 0))),
-                                'current_price': Decimal(str(pos_data.get('current_price', 0))),
-                                'side': pos_data.get('side', 'BUY'),
-                                'status': pos_data.get('status', 'OPEN'),
-                                'pnl': Decimal(str(pos_data.get('pnl', 0))),
-                            }
-                        )
-                        
-                        if not created:
-                            # Mise à jour si la position existe déjà
+                        # Pour Saxo, on ne fait pas de mise à jour car on crée toujours de nouvelles positions
+                        # Pour les autres brokers, mettre à jour si la position existe déjà
+                        if broker_credentials.broker_type != 'saxo' and not created:
                             position.size = Decimal(str(pos_data.get('size', 0)))
                             position.entry_price = Decimal(str(pos_data.get('entry_price', 0)))
                             position.current_price = Decimal(str(pos_data.get('current_price', 0)))
@@ -257,7 +284,7 @@ class BrokerService:
                     # Récupérer ou créer le Trade
                     trade, created = Trade.objects.get_or_create(
                         user=broker_credentials.user,
-                        asset=asset,
+                        asset_tradable=asset_tradable,
                         timestamp=trade_data.get('timestamp'),
                         defaults={
                             'size': Decimal(str(trade_data.get('size', 0))),
@@ -278,7 +305,7 @@ class BrokerService:
                         trade.save()
                     
                     trades.append(trade)
-                    print(f"✅ Trade synchronisé: {trade.asset.symbol_clean}")
+                    print(f"✅ Trade synchronisé: {trade.asset_tradable.symbol}")
                     
                 except Exception as e:
                     print(f"❌ Erreur lors de la synchronisation du trade {trade_data.get('symbol', 'Unknown')}: {e}")
@@ -318,13 +345,28 @@ class BrokerService:
             trade_symbol = symbol or broker_trade.get('symbol', 'UNKNOWN')
             print(f"  Traitement trade pour symbole: {trade_symbol}")
             
-            # Create or retrieve the asset
-            asset, _ = Asset.objects.get_or_create(
+            # Create or retrieve the asset_tradable
+            # First, try to find existing AllAssets
+            all_asset, _ = AllAssets.objects.get_or_create(
                 symbol=trade_symbol,
+                platform=broker_credentials.broker_type,
                 defaults={
                     'name': trade_symbol,
-                    'type': 'CRYPTO' if broker_credentials.broker_type == 'binance' else 'STOCK',
-                    'platform': broker_credentials.broker_type.upper(),
+                    'asset_type': 'Crypto' if broker_credentials.broker_type == 'binance' else 'Stock',
+                    'market': 'SPOT' if broker_credentials.broker_type == 'binance' else 'NASDAQ',
+                    'currency': 'USD',
+                }
+            )
+            
+            # Then create or get AssetTradable
+            asset_tradable, _ = AssetTradable.objects.get_or_create(
+                all_asset=all_asset,
+                defaults={
+                    'symbol': trade_symbol,
+                    'name': trade_symbol,
+                    'platform': broker_credentials.broker_type,
+                    'asset_type': AssetType.objects.get_or_create(name='Crypto' if broker_credentials.broker_type == 'binance' else 'Stock')[0],
+                    'market': Market.objects.get_or_create(name='SPOT' if broker_credentials.broker_type == 'binance' else 'NASDAQ')[0],
                 }
             )
             
@@ -338,7 +380,7 @@ class BrokerService:
             # Create the trade
             trade = Trade.objects.create(
                 user=self.user,
-                asset=asset,
+                asset_tradable=asset_tradable,
                 size=Decimal(str(broker_trade.get('qty', broker_trade.get('size', 0)))),
                 price=Decimal(str(broker_trade.get('price', 0))),
                 side=side,
@@ -390,7 +432,7 @@ class BrokerService:
         broker = self.get_broker_instance(broker_credentials)
         return broker.get_auth_url(state)
 
-    def sync_all_assets_from_saxo(self, broker_credentials: BrokerCredentials, limit: int = 3000) -> Dict[str, Any]:
+    def sync_all_assets_from_saxo(self, broker_credentials: BrokerCredentials, limit: int = 1000) -> Dict[str, Any]:
         """Synchronise les actifs depuis Saxo Bank"""
         try:
             broker = self.get_broker_instance(broker_credentials)

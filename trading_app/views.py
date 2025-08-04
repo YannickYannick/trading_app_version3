@@ -91,6 +91,7 @@ def asset_tabulator(request):
             
             # Calculer la taille totale depuis toutes les positions correspondantes
             total_size = 0.0
+            
             if request.user.is_authenticated:
                 # Nettoyer le symbole pour la recherche
                 base_symbol = symbol.split(':')[0] if ':' in symbol else symbol
@@ -98,6 +99,16 @@ def asset_tabulator(request):
                 base_symbol = base_symbol.upper()
                 
                 # Chercher tous les AssetTradable qui correspondent au symbole de base
+                # Logique : Asset.symbol = "AAPL:xns_1" → chercher AssetTradable où symbol contient "AAPL" (symbole nettoyé)
+                base_symbol = asset.symbol_clean if asset.symbol_clean else asset.symbol
+                # Nettoyer le symbole (enlever les extensions comme :XNAS, _0, etc.)
+                if ':' in base_symbol:
+                    base_symbol = base_symbol.split(':')[0]
+                if '_' in base_symbol:
+                    base_symbol = base_symbol.split('_')[0]
+                
+                # Chercher directement les AssetTradable correspondants
+                # Cela inclut les positions Saxo avec suffixes (_0, _1, _2, etc.)
                 matching_asset_tradables = AssetTradable.objects.filter(
                     symbol__startswith=base_symbol
                 )
@@ -111,61 +122,61 @@ def asset_tabulator(request):
                         total_size=models.Sum('size')
                     )['total_size'] or 0
                     total_size += float(positions_size)
+            
+                print(f"🔍 Symbole: {symbol}, Base nettoyé: {base_symbol}, AssetTradables trouvés: {matching_asset_tradables.count()}, Taille totale: {total_size}")
+            
+                # Calculer la valeur (size * dernier prix)
+                value = total_size * last_price
                 
-                print(f"🔍 Symbole: {symbol}, Base: {base_symbol}, AssetTradables trouvés: {matching_asset_tradables.count()}, Taille totale: {total_size}")
-            
-            # Calculer la valeur (size * dernier prix)
-            value = total_size * last_price
-            
-            # Récupérer les positions détaillées pour cet asset
-            positions_data = []
-            if request.user.is_authenticated and total_size > 0:
-                for at in matching_asset_tradables:
-                    positions = Position.objects.filter(
-                        asset_tradable=at,
-                        user=request.user
-                    ).select_related('asset_tradable')
-                    
-                    for position in positions:
-                        positions_data.append({
-                            'id': f"pos_{position.id}",
-                            'symbol': at.symbol,
-                            'name': f"Position {at.symbol}",
-                            'platform': at.platform,
-                            'asset_type': at.asset_type.name,
-                            'market': at.market.name,
-                            'sector': 'Position',
-                            'industry': 'Position',
-                            'market_cap': 0,
-                            'size': float(position.size),
-                            'value': float(position.size) * last_price,
-                            'price_history': f"Entry: {position.entry_price}, Current: {position.current_price}",
-                            'entry_price': float(position.entry_price),
-                            'current_price': float(position.current_price),
-                            'side': position.side,
-                            'status': position.status,
-                            'pnl': float(position.pnl),
-                            'is_position': True,
-                            'position_id': position.id,
-                            'asset_tradable_id': at.id
-                        })
-            
-            grouped_assets[symbol] = {
-                'id': asset.id,
-                'symbol': symbol,
-                'name': asset.name,
-                'platform': asset_tradable.platform if asset_tradable else 'Non défini',
-                'asset_type': asset_tradable.asset_type.name if asset_tradable else 'Non défini',
-                'market': asset_tradable.market.name if asset_tradable else 'Non défini',
-                'sector': sector,
-                'industry': industry,
-                'market_cap': market_cap,
-                'size': total_size,
-                'value': value,
-                'price_history': price_history_display,
-                'all_asset_id': asset_tradable.all_asset.id if asset_tradable and asset_tradable.all_asset else None,
-                '_children': positions_data if positions_data else None
-            }
+                # Récupérer les positions détaillées pour cet asset
+                positions_data = []
+                if request.user.is_authenticated and total_size > 0:
+                    for at in matching_asset_tradables:
+                        positions = Position.objects.filter(
+                            asset_tradable=at,
+                            user=request.user
+                        ).select_related('asset_tradable')
+                        
+                        for position in positions:
+                            positions_data.append({
+                                'id': f"pos_{position.id}",
+                                'symbol': at.symbol,
+                                'name': f"Position {at.symbol}",
+                                'platform': at.platform,
+                                'asset_type': at.asset_type.name,
+                                'market': at.market.name,
+                                'sector': 'Position',
+                                'industry': 'Position',
+                                'market_cap': 0,
+                                'size': float(position.size),
+                                'value': float(position.size) * last_price,
+                                'price_history': f"Entry: {position.entry_price}, Current: {position.current_price}",
+                                'entry_price': float(position.entry_price),
+                                'current_price': float(position.current_price),
+                                'side': position.side,
+                                'status': position.status,
+                                'pnl': float(position.pnl),
+                                'is_position': True,
+                                'position_id': position.id,
+                                'asset_tradable_id': at.id
+                            })
+                
+                grouped_assets[symbol] = {
+                    'id': asset.id,
+                    'symbol': symbol,
+                    'name': asset.name,
+                    'platform': asset_tradable.platform if asset_tradable else 'Non défini',
+                    'asset_type': asset_tradable.asset_type.name if asset_tradable else 'Non défini',
+                    'market': asset_tradable.market.name if asset_tradable else 'Non défini',
+                    'sector': sector,
+                    'industry': industry,
+                    'market_cap': market_cap,
+                    'size': total_size,
+                    'value': value,
+                    'price_history': price_history_display,
+                    'all_asset_id': asset_tradable.all_asset.id if asset_tradable and asset_tradable.all_asset else None,
+                    '_children': positions_data if positions_data else None
+                }
     
     # Convertir le dictionnaire en liste
     data_assets = list(grouped_assets.values())
@@ -229,14 +240,14 @@ def save_asset_ajax(request):
 def trade_tabulator(request):
     """Vue pour afficher les trades dans un tableau Tabulator"""
     # Charger uniquement les trades depuis la base de données
-    trades = Trade.objects.select_related('asset').all().order_by('-timestamp')[:100]  # Limite à 100 trades
+    trades = Trade.objects.select_related('asset_tradable').all().order_by('-timestamp')[:100]  # Limite à 100 trades
     
     print(f"🔍 {trades.count()} trades trouvés en base de données")
     
     # Formater les données pour Tabulator
     tabledata = [{
         'id': trade.id,
-        'symbol': trade.asset.symbol_clean if trade.asset else 'N/A',
+        'symbol': trade.asset_tradable.symbol if trade.asset_tradable else 'N/A',
         'direction': trade.side,
         'size': float(trade.size),
         'opening_price': float(trade.price),
@@ -300,8 +311,15 @@ def trade_tabulator_with_synch(request):
         'data_trades': json.dumps(all_trades, cls=DjangoJSONEncoder),
     })
 
+@login_required
 def position_tabulator(request):
-    positions = Position.objects.select_related('asset').all()
+    positions = Position.objects.filter(user=request.user).select_related('asset_tradable')
+    print(f"🔍 {positions.count()} positions trouvées pour l'utilisateur {request.user.username}")
+    
+    # Debug: afficher toutes les positions
+    for pos in positions:
+        print(f"📊 Position ID: {pos.id}, Symbol: {pos.asset_tradable.symbol if pos.asset_tradable else 'N/A'}, Size: {pos.size}")
+    
     data_positions = []
     
     # Calculer les données pour les graphiques
@@ -309,14 +327,15 @@ def position_tabulator(request):
     industry_data = {}
     
     for position in positions:
+        print(f"📊 Traitement position ID: {position.id}, Symbol: {position.asset_tradable.symbol if position.asset_tradable else 'N/A'}, Size: {position.size}")
         position_data = {
             'id': position.id,
             'user_id': position.user_id,
-            'asset_id': position.asset_id,
-            'asset_name': position.asset.name if position.asset else 'N/A',
-            'asset_symbol': position.asset.symbol_clean if position.asset else 'N/A',
-            'underlying_asset_name': position.asset.name if position.asset else 'N/A',
-            'underlying_asset_symbol': position.asset.symbol_clean if position.asset else 'N/A',
+            'asset_id': position.asset_tradable_id,
+            'asset_name': position.asset_tradable.name if position.asset_tradable else 'N/A',
+            'asset_symbol': position.asset_tradable.symbol if position.asset_tradable else 'N/A',
+            'underlying_asset_name': position.asset_tradable.name if position.asset_tradable else 'N/A',
+            'underlying_asset_symbol': position.asset_tradable.symbol if position.asset_tradable else 'N/A',
             'size': str(position.size),
             'entry_price': str(position.entry_price),
             'current_price': str(position.current_price),
@@ -327,12 +346,13 @@ def position_tabulator(request):
             'updated_at': position.updated_at.isoformat(),
         }
         data_positions.append(position_data)
+        print(f"✅ Position ajoutée aux données: {position.asset_tradable.symbol if position.asset_tradable else 'N/A'}")
         
         # Agréger les données pour les graphiques
         size = float(position.size)
         # Récupérer sector/industry depuis l'Asset
-        sector = position.asset.sector if position.asset and position.asset.sector else 'Non défini'
-        industry = position.asset.industry if position.asset and position.asset.industry else 'Non défini'
+        sector = position.asset_tradable.all_asset.asset_type if position.asset_tradable and position.asset_tradable.all_asset else 'Non défini'
+        industry = position.asset_tradable.all_asset.market if position.asset_tradable and position.asset_tradable.all_asset else 'Non défini'
         
         # Agréger par secteur
         if sector not in sector_data:
@@ -1479,10 +1499,10 @@ def get_yahoo_data(symbol: str) -> dict:
             sector = info.get("sector", "Unknown")
             if sector == "N/A" or sector is None:
                 sector = "Unknown"
-                
-            industry = info.get("industry", "Unknown")
-            if industry == "N/A" or industry is None:
-                industry = "Unknown"
+            
+        industry = info.get("industry", "Unknown")
+        if industry == "N/A" or industry is None:
+            industry = "Unknown"
             
         name = info.get("longName", symbol)
         if name == "N/A" or name is None:
@@ -2003,20 +2023,20 @@ def update_all_assets_with_yahoo(request):
                     else:
                         # Utiliser Yahoo Finance pour les actions/autres
                         yahoo_data = get_yahoo_data(clean_symbol)
+                    
+                    if yahoo_data:
+                        # Mettre à jour l'Asset avec les données Yahoo
+                        asset.name = yahoo_data.get('name', asset.name)
+                        asset.sector = yahoo_data.get('sector', asset.sector)
+                        asset.industry = yahoo_data.get('industry', asset.industry)
+                        asset.market_cap = yahoo_data.get('market_cap', asset.market_cap)
+                        asset.price_history = yahoo_data.get('price_history', asset.price_history)
+                        asset.save()
                         
-                        if yahoo_data:
-                            # Mettre à jour l'Asset avec les données Yahoo
-                            asset.name = yahoo_data.get('name', asset.name)
-                            asset.sector = yahoo_data.get('sector', asset.sector)
-                            asset.industry = yahoo_data.get('industry', asset.industry)
-                            asset.market_cap = yahoo_data.get('market_cap', asset.market_cap)
-                            asset.price_history = yahoo_data.get('price_history', asset.price_history)
-                            asset.save()
-                            
-                            updated_count += 1
-                            print(f"✅ {asset.symbol} mis à jour (Yahoo): {asset.sector} - {asset.industry} - {asset.market_cap} - Historique: {len(json.loads(asset.price_history)) if asset.price_history != 'xxxx' else 0} bougies")
-                        else:
-                            print(f"⚠️ Pas de données Yahoo pour {asset.symbol} (symbole nettoyé: {clean_symbol})")
+                        updated_count += 1
+                        print(f"✅ {asset.symbol} mis à jour (Yahoo): {asset.sector} - {asset.industry} - {asset.market_cap} - Historique: {len(json.loads(asset.price_history)) if asset.price_history != 'xxxx' else 0} bougies")
+                    else:
+                        print(f"⚠️ Pas de données Yahoo pour {asset.symbol} (symbole nettoyé: {clean_symbol})")
                         
                 except Exception as e:
                     print(f"❌ Erreur mise à jour {asset.symbol}: {e}")
@@ -2410,7 +2430,7 @@ def binance_trades_ajax(request):
         existing_trades = Trade.objects.filter(
             user=request.user,
             platform='binance'
-        ).select_related('asset').values_list('timestamp', 'asset__symbol_clean', 'side', 'size', 'price')
+        ).select_related('asset_tradable').values_list('timestamp', 'asset_tradable__symbol', 'side', 'size', 'price')
         
         print(f"📊 {len(existing_trades)} trades existants en base de données")
         
@@ -2452,15 +2472,15 @@ def binance_trades_ajax(request):
                     print(f"⚠️ Aucun AllAssets trouvé pour {symbol}, trade ignoré")
                     continue
                 
-                # Créer ou récupérer Asset (pas besoin d'AssetTradable pour les trades)
-                asset, created = Asset.objects.get_or_create(
-                    symbol=symbol,
+                # Créer ou récupérer AssetTradable pour les trades
+                asset_tradable, created = AssetTradable.objects.get_or_create(
+                    symbol=symbol.upper(),
+                    platform='binance',
                     defaults={
+                        'all_asset': all_asset,
                         'name': symbol,
-                        'sector': 'Cryptocurrency',
-                        'industry': 'Digital Assets',
-                        'market_cap': 0.0,
-                        'price_history': 'xxxx'
+                        'asset_type': asset_type,
+                        'market': market,
                     }
                 )
                 
@@ -2478,7 +2498,7 @@ def binance_trades_ajax(request):
                     # Créer le nouveau Trade
                     trade = Trade.objects.create(
                         user=request.user,
-                        asset=asset,
+                        asset_tradable=asset_tradable,
                         size=trade_size,
                         price=trade_price,
                         side=trade_side,
@@ -2495,12 +2515,12 @@ def binance_trades_ajax(request):
                 continue
         
         # Récupérer tous les trades sauvegardés pour l'affichage (pas seulement les nouveaux)
-        saved_trades = Trade.objects.filter(user=request.user).order_by('-timestamp')[:100]
+        saved_trades = Trade.objects.filter(user=request.user).select_related('asset_tradable').order_by('-timestamp')[:100]
         
         # Formater pour Tabulator
         formatted_trades = [{
             'id': trade.id,
-            'symbol': trade.asset.symbol_clean if trade.asset else 'N/A',
+            'symbol': trade.asset_tradable.symbol if trade.asset_tradable else 'N/A',
             'direction': trade.side,
             'size': float(trade.size),
             'opening_price': float(trade.price),
@@ -2744,7 +2764,7 @@ def binance_positions_ajax(request):
         # Récupérer les positions existantes en base pour comparaison
         existing_positions = Position.objects.filter(
             user=request.user
-        ).values_list('asset__symbol_clean', 'side', 'size')
+        ).values_list('asset_tradable__symbol', 'side', 'size')
         
         existing_positions_set = set()
         for position in existing_positions:
@@ -2760,12 +2780,7 @@ def binance_positions_ajax(request):
             try:
                 asset_symbol = position_data.get('asset', 'N/A')
                 
-                # Créer ou récupérer l'asset
-                asset, created = Asset.objects.get_or_create(
-                    symbol=asset_symbol,
-                    defaults={'name': asset_symbol, 'sector': 'Cryptocurrency', 'industry': 'Digital Assets', 'market_cap': 0.0, 'price_history': 'xxxx'}
-                )
-                
+                # Créer ou récupérer l'asset_tradable
                 asset_type, _ = AssetType.objects.get_or_create(name='Crypto')
                 market, _ = Market.objects.get_or_create(name='Binance')
                 
@@ -2776,15 +2791,15 @@ def binance_positions_ajax(request):
                     print(f"⚠️ Aucun AllAssets trouvé pour {asset_symbol}, position ignorée")
                     continue
                 
-                # Utiliser directement l'Asset (pas besoin d'AssetTradable pour les positions)
-                asset, created = Asset.objects.get_or_create(
-                    symbol=asset_symbol,
+                # Créer ou récupérer l'AssetTradable
+                asset_tradable, _ = AssetTradable.objects.get_or_create(
+                    symbol=asset_symbol.upper(),
+                    platform='binance',
                     defaults={
+                        'all_asset': all_asset,
                         'name': asset_symbol,
-                        'sector': 'Cryptocurrency',
-                        'industry': 'Digital Assets',
-                        'market_cap': 0.0,
-                        'price_history': 'xxxx'
+                        'asset_type': asset_type,
+                        'market': market,
                     }
                 )
                 
@@ -2796,7 +2811,7 @@ def binance_positions_ajax(request):
                 if position_key not in existing_positions_set and position_size > 0:
                     position = Position.objects.create(
                         user=request.user,
-                        asset=asset,
+                        asset_tradable=asset_tradable,
                         size=position_size,
                         entry_price=0.0,  # Pas de prix d'entrée pour les balances
                         current_price=0.0,  # À récupérer si nécessaire
@@ -2814,15 +2829,15 @@ def binance_positions_ajax(request):
                 continue
         
         # Récupérer toutes les positions sauvegardées pour l'affichage
-        saved_positions = Position.objects.filter(user=request.user).select_related('asset')
+        saved_positions = Position.objects.filter(user=request.user).select_related('asset_tradable')
         
         formatted_positions = []
         for position in saved_positions:
             formatted_positions.append({
                 'id': position.id,
-                'asset_name': position.asset.name if position.asset else 'N/A',
-                'asset_symbol': position.asset.symbol_clean if position.asset else 'N/A',
-                'underlying_asset_name': position.asset.name if position.asset else 'N/A',
+                'asset_name': position.asset_tradable.name if position.asset_tradable else 'N/A',
+                'asset_symbol': position.asset_tradable.symbol if position.asset_tradable else 'N/A',
+                'underlying_asset_name': position.asset_tradable.name if position.asset_tradable else 'N/A',
                 'size': str(position.size),
                 'entry_price': str(position.entry_price),
                 'current_price': str(position.current_price),
@@ -3053,4 +3068,84 @@ def search_all_assets(request):
 def kenza(request):
     """Page spéciale pour Kenza"""
     return render(request, 'trading_app/kenza.html')
+
+@login_required
+@csrf_exempt
+def get_asset_price_for_chart(request, asset_symbol):
+    """Récupérer les données de prix d'un asset pour le graphique des trades"""
+    try:
+        # Nettoyer le symbole
+        clean_symbol = asset_symbol.upper().split(':')[0].split('_')[0]
+        
+        # Chercher l'asset
+        asset = Asset.objects.filter(
+            Q(symbol__icontains=clean_symbol) | 
+            Q(symbol_clean__icontains=clean_symbol)
+        ).first()
+        
+        if not asset:
+            return JsonResponse({
+                'success': False,
+                'error': f'Asset {asset_symbol} non trouvé'
+            })
+        
+        # Récupérer l'historique de prix
+        if not asset.price_history or asset.price_history == 'xxxx':
+            return JsonResponse({
+                'success': False,
+                'error': 'Aucun historique de prix disponible pour cet asset'
+            })
+        
+        try:
+            price_data = json.loads(asset.price_history)
+        except json.JSONDecodeError:
+            return JsonResponse({
+                'success': False,
+                'error': 'Format d\'historique de prix invalide'
+            })
+        
+        if not price_data:
+            return JsonResponse({
+                'success': False,
+                'error': 'Aucune donnée de prix disponible'
+            })
+        
+        # Formater les données pour TradingView
+        formatted_data = []
+        for candle in price_data:
+            try:
+                # Convertir la date en timestamp
+                if isinstance(candle.get('date'), str):
+                    date_obj = datetime.strptime(candle['date'], '%Y-%m-%d')
+                else:
+                    date_obj = candle['date']
+                
+                formatted_data.append({
+                    'time': int(date_obj.timestamp()),
+                    'open': float(candle.get('open', 0)),
+                    'high': float(candle.get('high', 0)),
+                    'low': float(candle.get('low', 0)),
+                    'close': float(candle.get('close', 0)),
+                    'volume': float(candle.get('volume', 0))
+                })
+            except (ValueError, TypeError) as e:
+                print(f"Erreur formatage donnée: {e}")
+                continue
+        
+        # Trier par date
+        formatted_data.sort(key=lambda x: x['time'])
+        
+        return JsonResponse({
+            'success': True,
+            'data': formatted_data,
+            'symbol': asset.symbol_clean or asset.symbol,
+            'name': asset.name
+        })
+        
+    except Exception as e:
+        print(f"Erreur récupération données prix: {e}")
+        return JsonResponse({
+            'success': False,
+            'error': f'Erreur lors de la récupération des données: {str(e)}'
+        })
 

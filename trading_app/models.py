@@ -397,7 +397,7 @@ class StrategyExecution(models.Model):
 class Position(models.Model):
     """Modèle pour les positions"""
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-    asset = models.ForeignKey(Asset, on_delete=models.CASCADE)
+    asset_tradable = models.ForeignKey(AssetTradable, on_delete=models.CASCADE)
     size = models.DecimalField(max_digits=15, decimal_places=2)
     entry_price = models.DecimalField(max_digits=15, decimal_places=5)
     current_price = models.DecimalField(max_digits=15, decimal_places=5)
@@ -417,7 +417,7 @@ class Position(models.Model):
 class Trade(models.Model):
     """Modèle pour les trades"""
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-    asset = models.ForeignKey(Asset, on_delete=models.CASCADE)
+    asset_tradable = models.ForeignKey(AssetTradable, on_delete=models.CASCADE)
     size = models.DecimalField(max_digits=15, decimal_places=2)
     price = models.DecimalField(max_digits=15, decimal_places=5)
     side = models.CharField(max_length=4)  # BUY, SELL
@@ -425,5 +425,5 @@ class Trade(models.Model):
     platform = models.CharField(max_length=20)
     
     def __str__(self):
-        return f"{self.side} {self.size} {self.asset.symbol_clean} @ {self.price}"
+        return f"{self.side} {self.size} {self.asset_tradable.symbol} @ {self.price}"
 
