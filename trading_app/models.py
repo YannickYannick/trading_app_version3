@@ -262,19 +262,142 @@ class BrokerCredentials(models.Model):
         return {}
 
 class Strategy(models.Model):
-    """Modèle pour les stratégies de trading"""
-    name = models.CharField(max_length=100, unique=True)
-    description = models.TextField(blank=True)
-    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    """Modèle pour les stratégies de trading automatisées"""
+    
+    # Types d'algorithmes disponibles
+    ALGORITHM_CHOICES = [
+        ('threshold', 'Seuils (Threshold)'),
+        ('ma_crossover', 'Moving Average Crossover'),
+        ('rsi', 'RSI (Relative Strength Index)'),
+        ('bollinger', 'Bollinger Bands'),
+        ('macd', 'MACD'),
+        ('grid', 'Grid Trading'),
+    ]
+    
+    # Modes d'exécution
+    EXECUTION_MODE_CHOICES = [
+        ('simulation', 'Simulation'),
+        ('paper_trading', 'Paper Trading'),
+        ('live_trading', 'Trading Réel'),
+    ]
+    
+    # Statuts
+    STATUS_CHOICES = [
+        ('active', 'Active'),
+        ('inactive', 'Inactive'),
+        ('paused', 'En Pause'),
+    ]
+    
+    # Informations de base
+    name = models.CharField(max_length=100, help_text="Nom de la stratégie")
+    asset = models.ForeignKey(Asset, on_delete=models.CASCADE, help_text="Asset sur lequel appliquer la stratégie")
+    algorithm_type = models.CharField(max_length=20, choices=ALGORITHM_CHOICES, default='threshold', help_text="Type d'algorithme")
+    
+    # Paramètres de l'algorithme (JSON)
+    parameters = models.JSONField(default=dict, help_text="Paramètres spécifiques à l'algorithme")
+    
+    # Configuration d'exécution
+    broker = models.ForeignKey(BrokerCredentials, on_delete=models.CASCADE, help_text="Broker pour exécuter les ordres")
+    execution_mode = models.CharField(max_length=20, choices=EXECUTION_MODE_CHOICES, default='simulation')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='inactive')
+    
+    # Fréquence de vérification (en minutes)
+    check_frequency = models.IntegerField(default=45, help_text="Fréquence de vérification en minutes")
+    
+    # Commentaires
+    comments = models.TextField(blank=True, help_text="Commentaires sur la stratégie")
+    
+    # Métadonnées
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    last_execution = models.DateTimeField(null=True, blank=True)
+    
+    # Statistiques
+    total_trades = models.IntegerField(default=0)
+    successful_trades = models.IntegerField(default=0)
+    total_pnl = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    
+    class Meta:
+        unique_together = ['user', 'asset', 'name']  # Un nom unique par utilisateur et asset
+        indexes = [
+            models.Index(fields=['user', 'status']),
+            models.Index(fields=['algorithm_type']),
+            models.Index(fields=['asset']),
+        ]
     
     def __str__(self):
-        return self.name
+        return f"{self.name} ({self.asset.symbol_clean or self.asset.symbol}) - {self.get_algorithm_type_display()}"
+    
+    def get_algorithm_instance(self):
+        """Retourne une instance de l'algorithme correspondant"""
+        from .algorithms import AlgorithmFactory
+        return AlgorithmFactory.create_algorithm(self.algorithm_type, self.parameters)
+    
+    def calculate_signals(self, price_data):
+        """Calcule les signaux d'achat/vente basés sur l'algorithme"""
+        algorithm = self.get_algorithm_instance()
+        return algorithm.calculate_signals(price_data)
+    
+    def should_execute_order(self, signal):
+        """Détermine si un ordre doit être exécuté selon le mode"""
+        if self.execution_mode == 'simulation':
+            return False  # Pas d'exécution en simulation
+        elif self.execution_mode == 'paper_trading':
+            return True   # Exécution en paper trading
+        elif self.execution_mode == 'live_trading':
+            return True   # Exécution en trading réel
+        return False
+    
+    def get_parameter_display(self):
+        """Retourne une représentation lisible des paramètres"""
+        if self.algorithm_type == 'threshold':
+            return f"Seuil bas: {self.parameters.get('threshold_low', 'N/A')}, Seuil haut: {self.parameters.get('threshold_high', 'N/A')}"
+        elif self.algorithm_type == 'ma_crossover':
+            return f"MA1: {self.parameters.get('ma1_period', 'N/A')}, MA2: {self.parameters.get('ma2_period', 'N/A')}"
+        elif self.algorithm_type == 'rsi':
+            return f"Période: {self.parameters.get('rsi_period', 'N/A')}, Seuils: {self.parameters.get('rsi_low', 'N/A')}-{self.parameters.get('rsi_high', 'N/A')}"
+        elif self.algorithm_type == 'bollinger':
+            return f"Période: {self.parameters.get('bb_period', 'N/A')}, Écart-type: {self.parameters.get('bb_std', 'N/A')}"
+        elif self.algorithm_type == 'macd':
+            return f"Rapide: {self.parameters.get('macd_fast', 'N/A')}, Lent: {self.parameters.get('macd_slow', 'N/A')}, Signal: {self.parameters.get('macd_signal', 'N/A')}"
+        elif self.algorithm_type == 'grid':
+            return f"Min: {self.parameters.get('grid_min', 'N/A')}, Max: {self.parameters.get('grid_max', 'N/A')}, Niveaux: {self.parameters.get('grid_levels', 'N/A')}"
+        return "Paramètres non disponibles"
+
+class StrategyExecution(models.Model):
+    """Historique des exécutions de stratégies"""
+    
+    strategy = models.ForeignKey(Strategy, on_delete=models.CASCADE, related_name='executions')
+    
+    # Données de l'exécution
+    execution_time = models.DateTimeField(auto_now_add=True)
+    current_price = models.DecimalField(max_digits=15, decimal_places=5)
+    signal = models.CharField(max_length=10)  # 'BUY', 'SELL', 'HOLD'
+    signal_strength = models.FloatField(default=0.0)  # Force du signal (0-1)
+    
+    # Résultat de l'exécution
+    order_executed = models.BooleanField(default=False)
+    order_size = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
+    order_price = models.DecimalField(max_digits=15, decimal_places=5, null=True, blank=True)
+    
+    # Métadonnées
+    execution_duration = models.FloatField(default=0.0)  # Durée en secondes
+    error_message = models.TextField(blank=True)
+    
+    class Meta:
+        indexes = [
+            models.Index(fields=['strategy', 'execution_time']),
+            models.Index(fields=['signal']),
+        ]
+    
+    def __str__(self):
+        return f"{self.strategy.name} - {self.execution_time} - {self.signal}"
 
 class Position(models.Model):
     """Modèle pour les positions"""
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-    asset_tradable = models.ForeignKey(AssetTradable, on_delete=models.CASCADE)
+    asset = models.ForeignKey(Asset, on_delete=models.CASCADE)
     size = models.DecimalField(max_digits=15, decimal_places=2)
     entry_price = models.DecimalField(max_digits=15, decimal_places=5)
     current_price = models.DecimalField(max_digits=15, decimal_places=5)
@@ -294,7 +417,7 @@ class Position(models.Model):
 class Trade(models.Model):
     """Modèle pour les trades"""
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-    asset_tradable = models.ForeignKey(AssetTradable, on_delete=models.CASCADE)
+    asset = models.ForeignKey(Asset, on_delete=models.CASCADE)
     size = models.DecimalField(max_digits=15, decimal_places=2)
     price = models.DecimalField(max_digits=15, decimal_places=5)
     side = models.CharField(max_length=4)  # BUY, SELL
@@ -302,5 +425,5 @@ class Trade(models.Model):
     platform = models.CharField(max_length=20)
     
     def __str__(self):
-        return f"{self.side} {self.size} {self.asset_tradable.symbol} @ {self.price}"
+        return f"{self.side} {self.size} {self.asset.symbol_clean} @ {self.price}"
 

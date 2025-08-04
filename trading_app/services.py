@@ -93,8 +93,7 @@ class BrokerService:
                         # Récupérer ou créer la Position
                         position, created = Position.objects.get_or_create(
                             user=broker_credentials.user,
-                            asset_tradable=asset_tradable,
-                            platform='binance',
+                            asset=asset,
                             defaults={
                                 'size': Decimal(str(position_size)),
                                 'entry_price': Decimal('0.0'),  # Pas de prix d'entrée pour les balances
@@ -119,9 +118,13 @@ class BrokerService:
                         asset_type, _ = AssetType.objects.get_or_create(name=pos_data.get('type', 'Unknown'))
                         market, _ = Market.objects.get_or_create(name=pos_data.get('market', 'Unknown'))
                         
-                        # Récupérer ou créer l'Asset sous-jacent
+                        # Pour Saxo, créer un Asset unique pour chaque position
+                        # en ajoutant un suffixe basé sur l'index pour éviter les conflits
+                        unique_symbol = f"{pos_data['symbol']}_{i}" if broker_credentials.broker_type == 'saxo' else pos_data['symbol']
+                        
+                        # Récupérer ou créer l'Asset sous-jacent avec le symbole unique
                         asset, _ = Asset.objects.get_or_create(
-                            symbol=pos_data['symbol'],
+                            symbol=unique_symbol,
                             defaults={
                                 'name': pos_data.get('name', pos_data['symbol']),
                                 'sector': pos_data.get('sector', 'xxxx'),
@@ -135,20 +138,21 @@ class BrokerService:
                         # en ajoutant un suffixe basé sur l'index
                         unique_symbol = f"{pos_data['symbol']}_{i}" if broker_credentials.broker_type == 'saxo' else pos_data['symbol']
                         
-                        # Trouver un AllAssets correspondant existant
-                        all_asset = AssetTradable.find_matching_all_asset(unique_symbol, broker_credentials.broker_type)
+                        # Trouver un AllAssets correspondant existant (utiliser le symbole original)
+                        original_symbol = pos_data['symbol']
+                        all_asset = AssetTradable.find_matching_all_asset(original_symbol, broker_credentials.broker_type)
                         
                         if not all_asset:
-                            print(f"⚠️ Aucun AllAssets trouvé pour {unique_symbol}, position ignorée")
+                            print(f"⚠️ Aucun AllAssets trouvé pour {original_symbol}, position ignorée")
                             continue
                         
-                        # Récupérer ou créer l'AssetTradable
+                        # Récupérer ou créer l'AssetTradable (utiliser le symbole original)
                         asset_tradable, _ = AssetTradable.objects.get_or_create(
-                            symbol=unique_symbol.upper(),
+                            symbol=original_symbol.upper(),
                             platform=broker_credentials.broker_type,
                             defaults={
                                 'all_asset': all_asset,
-                                'name': pos_data.get('name', pos_data['symbol']),
+                                'name': pos_data.get('name', original_symbol),
                                 'asset_type': asset_type,
                                 'market': market,
                             }
@@ -157,7 +161,7 @@ class BrokerService:
                         # Récupérer ou créer la Position
                         position, created = Position.objects.get_or_create(
                             user=broker_credentials.user,
-                            asset_tradable=asset_tradable,
+                            asset=asset,
                             defaults={
                                 'size': Decimal(str(pos_data.get('size', 0))),
                                 'entry_price': Decimal(str(pos_data.get('entry_price', 0))),
@@ -205,15 +209,19 @@ class BrokerService:
             
             trades = []
             saved_count = 0
-            for trade_data in trades_data:
+            for i, trade_data in enumerate(trades_data):
                 try:
                     # Récupérer ou créer AssetType et Market
                     asset_type, _ = AssetType.objects.get_or_create(name=trade_data.get('type', 'Unknown'))
                     market, _ = Market.objects.get_or_create(name=trade_data.get('market', 'Unknown'))
                     
-                    # Récupérer ou créer l'Asset sous-jacent
+                    # Pour Saxo, créer un Asset unique pour chaque trade
+                    # en ajoutant un suffixe basé sur l'index pour éviter les conflits
+                    unique_symbol = f"{trade_data['symbol']}_{i}" if broker_credentials.broker_type == 'saxo' else trade_data['symbol']
+                    
+                    # Récupérer ou créer l'Asset sous-jacent avec le symbole unique
                     asset, _ = Asset.objects.get_or_create(
-                        symbol=trade_data['symbol'],
+                        symbol=unique_symbol,
                         defaults={
                             'name': trade_data.get('name', trade_data['symbol']),
                             'sector': trade_data.get('sector', 'xxxx'),
@@ -223,23 +231,24 @@ class BrokerService:
                         }
                     )
                     
-                    # Trouver un AllAssets correspondant existant
-                    all_asset = AssetTradable.find_matching_all_asset(trade_data['symbol'], broker_credentials.broker_type)
+                    # Trouver un AllAssets correspondant existant (utiliser le symbole original)
+                    original_symbol = trade_data['symbol']
+                    all_asset = AssetTradable.find_matching_all_asset(original_symbol, broker_credentials.broker_type)
                     
                     if not all_asset:
                         # Debug : afficher les symboles disponibles
                         available_symbols = AllAssets.objects.filter(platform=broker_credentials.broker_type).values_list('symbol', flat=True)
-                        print(f"⚠️ Aucun AllAssets trouvé pour {trade_data['symbol']}")
+                        print(f"⚠️ Aucun AllAssets trouvé pour {original_symbol}")
                         print(f"📋 Symboles disponibles pour {broker_credentials.broker_type}: {list(available_symbols)}")
                         continue
                     
-                    # Récupérer ou créer l'AssetTradable
+                    # Récupérer ou créer l'AssetTradable (utiliser le symbole original)
                     asset_tradable, _ = AssetTradable.objects.get_or_create(
-                        symbol=trade_data['symbol'].upper(),
+                        symbol=original_symbol.upper(),
                         platform=broker_credentials.broker_type,
                         defaults={
                             'all_asset': all_asset,
-                            'name': trade_data.get('name', trade_data['symbol']),
+                            'name': trade_data.get('name', original_symbol),
                             'asset_type': asset_type,
                             'market': market,
                         }
@@ -248,7 +257,7 @@ class BrokerService:
                     # Récupérer ou créer le Trade
                     trade, created = Trade.objects.get_or_create(
                         user=broker_credentials.user,
-                        asset_tradable=asset_tradable,
+                        asset=asset,
                         timestamp=trade_data.get('timestamp'),
                         defaults={
                             'size': Decimal(str(trade_data.get('size', 0))),
@@ -269,7 +278,7 @@ class BrokerService:
                         trade.save()
                     
                     trades.append(trade)
-                    print(f"✅ Trade synchronisé: {trade.asset_tradable.symbol}")
+                    print(f"✅ Trade synchronisé: {trade.asset.symbol_clean}")
                     
                 except Exception as e:
                     print(f"❌ Erreur lors de la synchronisation du trade {trade_data.get('symbol', 'Unknown')}: {e}")
@@ -381,7 +390,7 @@ class BrokerService:
         broker = self.get_broker_instance(broker_credentials)
         return broker.get_auth_url(state)
 
-    def sync_all_assets_from_saxo(self, broker_credentials: BrokerCredentials, limit: int = 1000) -> Dict[str, Any]:
+    def sync_all_assets_from_saxo(self, broker_credentials: BrokerCredentials, limit: int = 3000) -> Dict[str, Any]:
         """Synchronise les actifs depuis Saxo Bank"""
         try:
             broker = self.get_broker_instance(broker_credentials)

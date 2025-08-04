@@ -23,6 +23,7 @@ class BinanceBroker(BrokerBase):
         self.api_secret = credentials.get('api_secret').encode('utf-8') if credentials.get('api_secret') else None
         self.base_url = "https://api.binance.com"  # ou "https://testnet.binance.vision" pour test
         self.is_testnet = credentials.get('testnet', False)
+        self._authenticated = False  # Flag pour l'authentification
         
         if self.is_testnet:
             self.base_url = "https://testnet.binance.vision"
@@ -119,6 +120,7 @@ class BinanceBroker(BrokerBase):
             
             if response.status_code == 200:
                 print("Authentification Binance réussie")
+                self._authenticated = True
                 return True
             else:
                 print(f"Erreur {response.status_code}: {response.text}")
@@ -133,6 +135,11 @@ class BinanceBroker(BrokerBase):
     def refresh_auth_token(self) -> bool:
         """Binance n'utilise pas de tokens, retourne True"""
         return True
+    
+    def is_authenticated(self) -> bool:
+        """Vérifier si l'authentification Binance est valide"""
+        # Pour Binance, on vérifie que les clés API sont présentes ET que l'authentification a réussi
+        return self.api_key is not None and self.api_secret is not None and self._authenticated
     
     def get_accounts(self) -> List[Dict[str, Any]]:
         """Récupérer les informations du compte"""
@@ -509,7 +516,10 @@ class BinanceBroker(BrokerBase):
     def place_order(self, symbol: str, side: str, size: Decimal, 
                    order_type: str = "MARKET", price: Optional[Decimal] = None) -> Dict[str, Any]:
         """Placer un ordre"""
+        print(f"🔐 Placement ordre Binance: {symbol} {side} {size} {order_type}")
+        
         if not self.is_authenticated():
+            print("❌ Non authentifié")
             return {"error": "Non authentifié"}
             
         try:
@@ -529,17 +539,33 @@ class BinanceBroker(BrokerBase):
                 params["price"] = str(price)
                 params["timeInForce"] = "GTC"
             
+            print(f"📋 Paramètres ordre: {params}")
+            
             signed_params = self._sign_payload(params)
             url = f"{self.base_url}{endpoint}"
+            
+            print(f"🌐 URL: {url}")
+            print(f"📋 Headers: {self._get_headers()}")
+            print(f"📋 Params signés: {signed_params}")
+            
             response = requests.post(url, headers=self._get_headers(), params=signed_params)
             
+            print(f"📊 Status Code: {response.status_code}")
+            print(f"📊 Réponse: {response.text}")
+            
             if response.status_code == 200:
-                return response.json()
+                result = response.json()
+                print(f"✅ Ordre placé avec succès: {result}")
+                return result
             else:
-                return {"error": f"Erreur {response.status_code}: {response.text}"}
+                error_msg = f"Erreur {response.status_code}: {response.text}"
+                print(f"❌ {error_msg}")
+                return {"error": error_msg}
                 
         except Exception as e:
-            return {"error": f"Erreur placement ordre Binance: {e}"}
+            error_msg = f"Erreur placement ordre Binance: {e}"
+            print(f"❌ {error_msg}")
+            return {"error": error_msg}
     
     def cancel_order(self, order_id: str, symbol: str) -> bool:
         """Annuler un ordre"""

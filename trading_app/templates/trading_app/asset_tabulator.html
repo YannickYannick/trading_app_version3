@@ -275,6 +275,47 @@
             }
             return value || '0,00 €';
         }},
+        { title: "Prix Entrée", field: "entry_price", headerFilter: "input", formatter: function(cell) {
+            var value = cell.getValue();
+            if (value && !isNaN(value)) {
+                return parseFloat(value).toFixed(2);
+            }
+            return value || '';
+        }},
+        { title: "Prix Actuel", field: "current_price", headerFilter: "input", formatter: function(cell) {
+            var value = cell.getValue();
+            if (value && !isNaN(value)) {
+                return parseFloat(value).toFixed(2);
+            }
+            return value || '';
+        }},
+        { title: "Side", field: "side", headerFilter: "input", formatter: function(cell) {
+            var value = cell.getValue();
+            if (value === 'BUY') {
+                return '<span class="badge bg-success">BUY</span>';
+            } else if (value === 'SELL') {
+                return '<span class="badge bg-danger">SELL</span>';
+            }
+            return value || '';
+        }},
+        { title: "Status", field: "status", headerFilter: "input", formatter: function(cell) {
+            var value = cell.getValue();
+            if (value === 'OPEN') {
+                return '<span class="badge bg-primary">OPEN</span>';
+            } else if (value === 'CLOSED') {
+                return '<span class="badge bg-secondary">CLOSED</span>';
+            }
+            return value || '';
+        }},
+        { title: "P&L", field: "pnl", headerFilter: "input", formatter: function(cell) {
+            var value = cell.getValue();
+            if (value && !isNaN(value)) {
+                var formattedValue = parseFloat(value).toFixed(2);
+                var color = value >= 0 ? 'text-success' : 'text-danger';
+                return '<span class="' + color + '">' + formattedValue + '</span>';
+            }
+            return value || '';
+        }},
         { title: "Historique Prix", field: "price_history", headerFilter: "input" }
     ];
     
@@ -370,40 +411,65 @@
         var container = document.createElement("div");
         container.className = "btn-group btn-group-sm";
         
-        // Bouton Save
-        var saveButton = document.createElement("button");
-        saveButton.className = "btn btn-outline-success";
-        saveButton.innerHTML = '<i class="fas fa-save"></i>';
-        saveButton.title = "Sauvegarder";
-        saveButton.addEventListener("click", function() {
-            var rowData = cell.getRow().getData();
-            const csrftoken = getCookie('csrftoken');
-            $.ajax({
-                url: '/assets/save/',
-                type: 'POST',
-                data: rowData,
-                headers: {'X-CSRFToken': csrftoken },
-                success: function(response) {
-                    alert("Enregistré !");
-                },
-                error: function(xhr) {
-                    alert("Erreur lors de l'enregistrement !");
-                }
+        var rowData = cell.getRow().getData();
+        
+        // Si c'est une position, afficher des boutons différents
+        if (rowData.position_id) {
+            // Bouton Détails Position
+            var detailsButton = document.createElement("button");
+            detailsButton.className = "btn btn-outline-info";
+            detailsButton.innerHTML = '<i class="fas fa-info-circle"></i>';
+            detailsButton.title = "Détails position";
+            detailsButton.addEventListener("click", function() {
+                showPositionDetails(rowData);
             });
-        });
+            
+            // Bouton Modifier Position
+            var editButton = document.createElement("button");
+            editButton.className = "btn btn-outline-warning";
+            editButton.innerHTML = '<i class="fas fa-edit"></i>';
+            editButton.title = "Modifier position";
+            editButton.addEventListener("click", function() {
+                editPosition(rowData);
+            });
+            
+            container.appendChild(detailsButton);
+            container.appendChild(editButton);
+        } else {
+            // Bouton Save pour les assets
+            var saveButton = document.createElement("button");
+            saveButton.className = "btn btn-outline-success";
+            saveButton.innerHTML = '<i class="fas fa-save"></i>';
+            saveButton.title = "Sauvegarder";
+            saveButton.addEventListener("click", function() {
+                const csrftoken = getCookie('csrftoken');
+                $.ajax({
+                    url: '/assets/save/',
+                    type: 'POST',
+                    data: rowData,
+                    headers: {'X-CSRFToken': csrftoken },
+                    success: function(response) {
+                        alert("Enregistré !");
+                    },
+                    error: function(xhr) {
+                        alert("Erreur lors de l'enregistrement !");
+                    }
+                });
+            });
+            
+            // Bouton Graphique pour les assets
+            var chartButton = document.createElement("button");
+            chartButton.className = "btn btn-outline-primary";
+            chartButton.innerHTML = '<i class="fas fa-chart-line"></i>';
+            chartButton.title = "Voir le graphique";
+            chartButton.addEventListener("click", function() {
+                openPriceChart(rowData.id);
+            });
+            
+            container.appendChild(saveButton);
+            container.appendChild(chartButton);
+        }
         
-        // Bouton Graphique
-        var chartButton = document.createElement("button");
-        chartButton.className = "btn btn-outline-primary";
-        chartButton.innerHTML = '<i class="fas fa-chart-line"></i>';
-        chartButton.title = "Voir le graphique";
-        chartButton.addEventListener("click", function() {
-            var rowData = cell.getRow().getData();
-            openPriceChart(rowData.id);
-        });
-        
-        container.appendChild(saveButton);
-        container.appendChild(chartButton);
         return container;
     }
 
@@ -423,13 +489,43 @@
         return cookieValue;
     }
 
-    // Création du tableau Tabulator avec les colonnes chargées
+    // Configuration des colonnes avec support des données imbriquées
+    function getVisibleColumnsWithTree() {
+        var baseColumns = getVisibleColumns();
+        
+        // Ajouter la colonne pour l'arbre de données
+        var treeColumn = {
+            title: "",
+            field: "_children",
+            formatter: function(cell) {
+                var rowData = cell.getRow().getData();
+                if (rowData._children && rowData._children.length > 0) {
+                    return '<i class="fas fa-chevron-down text-primary"></i>';
+                } else if (rowData.position_id) {
+                    return '<i class="fas fa-circle text-secondary" style="margin-left: 20px;"></i>';
+                }
+                return '';
+            },
+            headerSort: false,
+            width: 30
+        };
+        
+        // Insérer la colonne arbre en première position
+        baseColumns.unshift(treeColumn);
+        
+        return baseColumns;
+    }
+    
+    // Création du tableau Tabulator avec les colonnes chargées et support des arbres
     var table = new Tabulator("#asset-table", {
         height: "400px",
         layout: "fitDataFill",
         reactiveData: true,
         data: tabledata,
-        columns: getVisibleColumns()
+        columns: getVisibleColumnsWithTree(),
+        dataTree: true,
+        dataTreeStartExpanded: false,
+        dataTreeChildIndent: 20
     });
     
     // Initialiser le sélecteur de colonnes après la création de la table
@@ -938,6 +1034,30 @@
             });
         }
         return result;
+    }
+
+
+
+    // Fonction pour afficher les détails d'une position
+    function showPositionDetails(positionData) {
+        const details = `
+            <div class="alert alert-info">
+                <h6>Détails de la position</h6>
+                <p><strong>Symbole:</strong> ${positionData.symbol}</p>
+                <p><strong>Taille:</strong> ${positionData.size}</p>
+                <p><strong>Prix d'entrée:</strong> ${positionData.entry_price}</p>
+                <p><strong>Prix actuel:</strong> ${positionData.current_price}</p>
+                <p><strong>Side:</strong> ${positionData.side}</p>
+                <p><strong>Status:</strong> ${positionData.status}</p>
+                <p><strong>P&L:</strong> <span class="${positionData.pnl >= 0 ? 'text-success' : 'text-danger'}">${positionData.pnl}</span></p>
+            </div>
+        `;
+        alert(details.replace(/<[^>]*>/g, '')); // Version texte simple
+    }
+
+    // Fonction pour modifier une position
+    function editPosition(positionData) {
+        alert('Fonctionnalité de modification de position à implémenter pour: ' + positionData.symbol);
     }
 
     // Fonction pour mettre à jour les informations du graphique

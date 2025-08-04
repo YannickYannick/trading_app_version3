@@ -20,7 +20,7 @@ import pandas as pd
 import time
 from django.core.serializers.json import DjangoJSONEncoder
 from .brokers.factory import BrokerFactory
-from .models import Asset, Position, Trade, Strategy, BrokerCredentials, AssetType, Market, AssetTradable, AllAssets
+from .models import Asset, Position, Trade, Strategy, StrategyExecution, BrokerCredentials, AssetType, Market, AssetTradable, AllAssets
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +117,39 @@ def asset_tabulator(request):
             # Calculer la valeur (size * dernier prix)
             value = total_size * last_price
             
+            # Récupérer les positions détaillées pour cet asset
+            positions_data = []
+            if request.user.is_authenticated and total_size > 0:
+                for at in matching_asset_tradables:
+                    positions = Position.objects.filter(
+                        asset_tradable=at,
+                        user=request.user
+                    ).select_related('asset_tradable')
+                    
+                    for position in positions:
+                        positions_data.append({
+                            'id': f"pos_{position.id}",
+                            'symbol': at.symbol,
+                            'name': f"Position {at.symbol}",
+                            'platform': at.platform,
+                            'asset_type': at.asset_type.name,
+                            'market': at.market.name,
+                            'sector': 'Position',
+                            'industry': 'Position',
+                            'market_cap': 0,
+                            'size': float(position.size),
+                            'value': float(position.size) * last_price,
+                            'price_history': f"Entry: {position.entry_price}, Current: {position.current_price}",
+                            'entry_price': float(position.entry_price),
+                            'current_price': float(position.current_price),
+                            'side': position.side,
+                            'status': position.status,
+                            'pnl': float(position.pnl),
+                            'is_position': True,
+                            'position_id': position.id,
+                            'asset_tradable_id': at.id
+                        })
+            
             grouped_assets[symbol] = {
                 'id': asset.id,
                 'symbol': symbol,
@@ -131,6 +164,7 @@ def asset_tabulator(request):
                 'value': value,
                 'price_history': price_history_display,
                 'all_asset_id': asset_tradable.all_asset.id if asset_tradable and asset_tradable.all_asset else None,
+                '_children': positions_data if positions_data else None
             }
     
     # Convertir le dictionnaire en liste
@@ -195,14 +229,14 @@ def save_asset_ajax(request):
 def trade_tabulator(request):
     """Vue pour afficher les trades dans un tableau Tabulator"""
     # Charger uniquement les trades depuis la base de données
-    trades = Trade.objects.all().order_by('-timestamp')[:100]  # Limite à 100 trades
+    trades = Trade.objects.select_related('asset').all().order_by('-timestamp')[:100]  # Limite à 100 trades
     
     print(f"🔍 {trades.count()} trades trouvés en base de données")
     
     # Formater les données pour Tabulator
     tabledata = [{
         'id': trade.id,
-        'symbol': trade.asset_tradable.symbol if trade.asset_tradable else 'N/A',
+        'symbol': trade.asset.symbol_clean if trade.asset else 'N/A',
         'direction': trade.side,
         'size': float(trade.size),
         'opening_price': float(trade.price),
@@ -267,7 +301,7 @@ def trade_tabulator_with_synch(request):
     })
 
 def position_tabulator(request):
-    positions = Position.objects.select_related('asset_tradable').all()
+    positions = Position.objects.select_related('asset').all()
     data_positions = []
     
     # Calculer les données pour les graphiques
@@ -278,11 +312,11 @@ def position_tabulator(request):
         position_data = {
             'id': position.id,
             'user_id': position.user_id,
-            'asset_tradable_id': position.asset_tradable_id,
-            'asset_name': position.asset_tradable.name,
-            'asset_symbol': position.asset_tradable.symbol,
-            'underlying_asset_name': position.asset_tradable.name,
-            'underlying_asset_symbol': position.asset_tradable.symbol,
+            'asset_id': position.asset_id,
+            'asset_name': position.asset.name if position.asset else 'N/A',
+            'asset_symbol': position.asset.symbol_clean if position.asset else 'N/A',
+            'underlying_asset_name': position.asset.name if position.asset else 'N/A',
+            'underlying_asset_symbol': position.asset.symbol_clean if position.asset else 'N/A',
             'size': str(position.size),
             'entry_price': str(position.entry_price),
             'current_price': str(position.current_price),
@@ -296,9 +330,9 @@ def position_tabulator(request):
         
         # Agréger les données pour les graphiques
         size = float(position.size)
-        # Pour l'instant, on utilise des valeurs par défaut car sector/industry ne sont plus dans Asset
-        sector = 'Non défini'
-        industry = 'Non défini'
+        # Récupérer sector/industry depuis l'Asset
+        sector = position.asset.sector if position.asset and position.asset.sector else 'Non défini'
+        industry = position.asset.industry if position.asset and position.asset.industry else 'Non défini'
         
         # Agréger par secteur
         if sector not in sector_data:
@@ -328,12 +362,427 @@ def position_tabulator(request):
         'chart_industry_data': json.dumps(chart_industry_data, cls=DjangoJSONEncoder),
     })
 
+@login_required
 def strategy_tabulator(request):
-    strategies = Strategy.objects.all().values()
-    data_strategies = list(strategies)
+    """Page principale des stratégies avec tableau et interface de gestion"""
+    strategies = Strategy.objects.filter(user=request.user).select_related('asset', 'broker')
+    
+    # Préparer les données pour le tableau
+    data_strategies = []
+    for strategy in strategies:
+        data_strategies.append({
+            'id': strategy.id,
+            'name': strategy.name,
+            'asset_name': strategy.asset.symbol_clean if strategy.asset else 'N/A',
+            'algorithm_type': strategy.algorithm_type,
+            'algorithm_type_display': strategy.get_algorithm_type_display(),
+            'broker_name': strategy.broker.name if strategy.broker else 'N/A',
+            'execution_mode': strategy.execution_mode,
+            'execution_mode_display': strategy.get_execution_mode_display(),
+            'status': strategy.status,
+            'check_frequency': strategy.check_frequency,
+            'total_trades': strategy.total_trades,
+            'successful_trades': strategy.successful_trades,
+            'total_pnl': float(strategy.total_pnl),
+            'last_execution': strategy.last_execution.isoformat() if strategy.last_execution else None,
+            'created_at': strategy.created_at.isoformat(),
+        })
+    
+    # Données pour les dropdowns
+    assets_data = list(Asset.objects.all().values('id', 'symbol_clean', 'name'))
+    brokers_data = list(BrokerCredentials.objects.filter(user=request.user).values('id', 'name', 'broker_type'))
+    
     return render(request, 'trading_app/strategy_tabulator.html', {
         'data_strategies': json.dumps(data_strategies, cls=DjangoJSONEncoder),
+        'assets_data': json.dumps(assets_data, cls=DjangoJSONEncoder),
+        'brokers_data': json.dumps(brokers_data, cls=DjangoJSONEncoder),
     })
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def create_strategy(request):
+    """Créer une nouvelle stratégie"""
+    try:
+        data = json.loads(request.body)
+        
+        # Validation des données
+        required_fields = ['name', 'asset', 'algorithm_type', 'broker', 'execution_mode']
+        for field in required_fields:
+            if not data.get(field):
+                return JsonResponse({'success': False, 'error': f'Champ {field} requis'})
+        
+        # Récupérer les objets
+        asset = get_object_or_404(Asset, id=data['asset'])
+        broker = get_object_or_404(BrokerCredentials, id=data['broker'], user=request.user)
+        
+        # Traiter la fréquence
+        check_frequency = data.get('check_frequency', 45)
+        if isinstance(check_frequency, str):
+            try:
+                check_frequency = int(check_frequency)
+            except ValueError:
+                return JsonResponse({'success': False, 'error': 'Fréquence invalide (doit être un nombre entier)'})
+        
+        if not isinstance(check_frequency, int) or check_frequency < 1 or check_frequency > 1440:
+            return JsonResponse({'success': False, 'error': 'Fréquence invalide (doit être entre 1 et 1440 minutes)'})
+        
+        # Créer la stratégie
+        strategy = Strategy.objects.create(
+            user=request.user,
+            name=data['name'],
+            asset=asset,
+            algorithm_type=data['algorithm_type'],
+            parameters=data.get('parameters', {}),
+            broker=broker,
+            execution_mode=data['execution_mode'],
+            check_frequency=check_frequency,
+            comments=data.get('comments', ''),
+            status='inactive'  # Par défaut inactive
+        )
+        
+        return JsonResponse({
+            'success': True,
+            'strategy_id': strategy.id,
+            'message': 'Stratégie créée avec succès'
+        })
+        
+    except json.JSONDecodeError:
+        return JsonResponse({'success': False, 'error': 'Données JSON invalides'})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
+
+@login_required
+def strategy_details(request, strategy_id):
+    """Obtenir les détails d'une stratégie"""
+    try:
+        strategy = get_object_or_404(Strategy, id=strategy_id, user=request.user)
+        
+        strategy_data = {
+            'id': strategy.id,
+            'name': strategy.name,
+            'asset_id': strategy.asset.id if strategy.asset else None,
+            'asset_name': strategy.asset.symbol_clean if strategy.asset else 'N/A',
+            'algorithm_type': strategy.algorithm_type,
+            'algorithm_type_display': strategy.get_algorithm_type_display(),
+            'broker_id': strategy.broker.id if strategy.broker else None,
+            'broker_name': strategy.broker.name if strategy.broker else 'N/A',
+            'execution_mode': strategy.execution_mode,
+            'execution_mode_display': strategy.get_execution_mode_display(),
+            'status': strategy.status,
+            'check_frequency': strategy.check_frequency,
+            'total_trades': strategy.total_trades,
+            'successful_trades': strategy.successful_trades,
+            'total_pnl': float(strategy.total_pnl),
+            'last_execution': strategy.last_execution.isoformat() if strategy.last_execution else None,
+            'parameters': strategy.parameters,
+            'comments': strategy.comments,
+            'created_at': strategy.created_at.isoformat(),
+        }
+        
+        return JsonResponse({'success': True, 'strategy': strategy_data})
+        
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def toggle_strategy(request, strategy_id):
+    """Activer/Désactiver une stratégie"""
+    try:
+        strategy = get_object_or_404(Strategy, id=strategy_id, user=request.user)
+        
+        # Basculer le statut
+        if strategy.status == 'active':
+            strategy.status = 'inactive'
+        else:
+            strategy.status = 'active'
+        
+        strategy.save()
+        
+        return JsonResponse({
+            'success': True,
+            'new_status': strategy.status,
+            'message': f'Stratégie {strategy.status}'
+        })
+        
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def delete_strategy(request, strategy_id):
+    """Supprimer une stratégie"""
+    try:
+        strategy = get_object_or_404(Strategy, id=strategy_id, user=request.user)
+        strategy.delete()
+        
+        return JsonResponse({
+            'success': True,
+            'message': 'Stratégie supprimée avec succès'
+        })
+        
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def execute_strategy(request, strategy_id):
+    """Exécuter une stratégie manuellement"""
+    try:
+        strategy = get_object_or_404(Strategy, id=strategy_id, user=request.user)
+        
+        # Vérifier que la stratégie a un asset avec des données de prix
+        if not strategy.asset.price_history or strategy.asset.price_history == 'xxxx':
+            return JsonResponse({
+                'success': False, 
+                'error': 'Aucun historique de prix disponible pour cet asset'
+            })
+        
+        # Récupérer les données de prix
+        try:
+            price_data = json.loads(strategy.asset.price_history)
+        except json.JSONDecodeError:
+            return JsonResponse({
+                'success': False, 
+                'error': 'Format d\'historique de prix invalide'
+            })
+        
+        if not price_data:
+            return JsonResponse({
+                'success': False, 
+                'error': 'Aucune donnée de prix disponible'
+            })
+        
+        # Calculer le signal avec l'algorithme
+        start_time = time.time()
+        signal_result = strategy.calculate_signals(price_data)
+        execution_duration = time.time() - start_time
+        
+        # Récupérer le prix actuel
+        current_price = float(price_data[-1]['close']) if price_data else 0.0
+        
+        # Créer l'enregistrement d'exécution
+        execution = StrategyExecution.objects.create(
+            strategy=strategy,
+            current_price=current_price,
+            signal=signal_result['signal'],
+            signal_strength=signal_result['strength'],
+            execution_duration=execution_duration
+        )
+        
+        # Vérifier si un ordre doit être exécuté
+        order_executed = False
+        order_size = None
+        order_price = None
+        
+        if strategy.should_execute_order(signal_result):
+            # Exécuter l'ordre réel
+            try:
+                order_size = strategy.parameters.get('order_size', 1.0)
+                side = 'BUY' if signal_result['signal'] == 'BUY' else 'SELL'
+                
+                print(f"🔐 Exécution ordre stratégie: {strategy.asset.symbol_clean} - {side} - {order_size}")
+                
+                # Passer l'ordre selon le type de broker
+                if strategy.broker.broker_type == 'saxo':
+                    result = place_saxo_order_with_asset(strategy.asset, strategy.broker, order_size, side)
+                elif strategy.broker.broker_type == 'binance':
+                    result = place_binance_order_with_asset(strategy.asset, strategy.broker, order_size, side, request.user)
+                else:
+                    result = {
+                        'status': 'error',
+                        'message': f'Broker {strategy.broker.broker_type} non supporté'
+                    }
+                
+                print(f"📊 Résultat ordre stratégie: {result}")
+                
+                if result.get('status') == 'success':
+                    order_executed = True
+                    order_price = current_price
+                    strategy.total_trades += 1
+                    strategy.successful_trades += 1
+                    print(f"✅ Ordre stratégie exécuté avec succès")
+                else:
+                    order_executed = False
+                    print(f"❌ Échec exécution ordre stratégie: {result.get('message', 'Erreur inconnue')}")
+                    
+            except Exception as e:
+                order_executed = False
+                print(f"❌ Exception lors de l'exécution d'ordre stratégie: {e}")
+                execution.error_message = str(e)
+        
+        execution.order_executed = order_executed
+        execution.order_size = order_size
+        execution.order_price = order_price
+        execution.save()
+        
+        # Mettre à jour la dernière exécution de la stratégie
+        from django.utils import timezone
+        strategy.last_execution = timezone.now()
+        strategy.save()
+        
+        return JsonResponse({
+            'success': True,
+            'signal': signal_result['signal'],
+            'strength': signal_result['strength'],
+            'reason': signal_result['reason'],
+            'current_price': current_price,
+            'order_executed': order_executed,
+            'execution_duration': execution_duration
+        })
+        
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def update_strategy_frequency(request, strategy_id):
+    """Mettre à jour la fréquence d'une stratégie"""
+    try:
+        strategy = get_object_or_404(Strategy, id=strategy_id, user=request.user)
+        data = json.loads(request.body)
+        
+        frequency = data.get('frequency', 45)
+        
+        # Convertir en int si c'est une chaîne
+        if isinstance(frequency, str):
+            try:
+                frequency = int(frequency)
+            except ValueError:
+                return JsonResponse({
+                    'success': False, 
+                    'error': 'Fréquence invalide (doit être un nombre entier)'
+                })
+        
+        # Validation de la plage
+        if not isinstance(frequency, int) or frequency < 1 or frequency > 1440:
+            return JsonResponse({
+                'success': False, 
+                'error': 'Fréquence invalide (doit être entre 1 et 1440 minutes)'
+            })
+        
+        strategy.check_frequency = frequency
+        strategy.save()
+        
+        return JsonResponse({
+            'success': True,
+            'message': f'Fréquence mise à jour: {frequency} minutes'
+        })
+        
+    except json.JSONDecodeError:
+        return JsonResponse({'success': False, 'error': 'Données JSON invalides'})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def update_strategy(request, strategy_id):
+    """Mettre à jour une stratégie complète"""
+    try:
+        strategy = get_object_or_404(Strategy, id=strategy_id, user=request.user)
+        data = json.loads(request.body)
+        
+        # Validation des données
+        required_fields = ['name', 'asset', 'algorithm_type', 'broker', 'execution_mode']
+        for field in required_fields:
+            if not data.get(field):
+                return JsonResponse({'success': False, 'error': f'Champ {field} requis'})
+        
+        # Récupérer les objets
+        asset = get_object_or_404(Asset, id=data['asset'])
+        broker = get_object_or_404(BrokerCredentials, id=data['broker'], user=request.user)
+        
+        # Traiter la fréquence
+        check_frequency = data.get('check_frequency', 45)
+        if isinstance(check_frequency, str):
+            try:
+                check_frequency = int(check_frequency)
+            except ValueError:
+                return JsonResponse({'success': False, 'error': 'Fréquence invalide (doit être un nombre entier)'})
+        
+        if not isinstance(check_frequency, int) or check_frequency < 1 or check_frequency > 1440:
+            return JsonResponse({'success': False, 'error': 'Fréquence invalide (doit être entre 1 et 1440 minutes)'})
+        
+        # Mettre à jour la stratégie
+        strategy.name = data['name']
+        strategy.asset = asset
+        strategy.algorithm_type = data['algorithm_type']
+        strategy.parameters = data.get('parameters', {})
+        strategy.broker = broker
+        strategy.execution_mode = data['execution_mode']
+        strategy.check_frequency = check_frequency
+        strategy.comments = data.get('comments', '')
+        strategy.save()
+        
+        return JsonResponse({
+            'success': True,
+            'message': 'Stratégie mise à jour avec succès'
+        })
+        
+    except json.JSONDecodeError:
+        return JsonResponse({'success': False, 'error': 'Données JSON invalides'})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
+
+@login_required
+def execution_history(request):
+    """Récupérer l'historique des exécutions avec filtres"""
+    try:
+        # Récupérer les paramètres de filtrage
+        strategy_id = request.GET.get('strategy')
+        signal = request.GET.get('signal')
+        date_from = request.GET.get('date_from')
+        date_to = request.GET.get('date_to')
+        
+        # Construire la requête
+        executions = StrategyExecution.objects.filter(strategy__user=request.user)
+        
+        if strategy_id:
+            executions = executions.filter(strategy_id=strategy_id)
+        
+        if signal:
+            executions = executions.filter(signal=signal)
+        
+        if date_from:
+            executions = executions.filter(execution_time__date__gte=date_from)
+        
+        if date_to:
+            executions = executions.filter(execution_time__date__lte=date_to)
+        
+        # Ordonner par date décroissante et limiter à 1000 résultats
+        executions = executions.select_related('strategy').order_by('-execution_time')[:1000]
+        
+        # Préparer les données
+        execution_data = []
+        for execution in executions:
+            execution_data.append({
+                'id': execution.id,
+                'strategy_name': execution.strategy.name,
+                'execution_time': execution.execution_time.isoformat(),
+                'signal': execution.signal,
+                'signal_strength': float(execution.signal_strength),
+                'current_price': float(execution.current_price),
+                'order_executed': execution.order_executed,
+                'order_size': float(execution.order_size) if execution.order_size else None,
+                'order_price': float(execution.order_price) if execution.order_price else None,
+                'execution_duration': float(execution.execution_duration),
+                'error_message': execution.error_message
+            })
+        
+        return JsonResponse({
+            'success': True,
+            'executions': execution_data,
+            'total_count': len(execution_data)
+        })
+        
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
 
 # Nouvelles vues pour les courtiers
 @login_required
@@ -1592,21 +2041,32 @@ def place_order_view(request):
         try:
             data = request.POST.dict()
             
-            asset_tradable_id = data.get('asset_tradable_id')
+            asset_id = data.get('asset_id')
+            broker_id = data.get('broker_id')
             amount = float(data.get('amount', 0))
             side = data.get('side', 'Buy')  # Buy ou Sell
-            broker_type = data.get('broker_type', 'saxo')
             
-            print(f" Ordre reçu: {asset_tradable_id} - {amount} - {side} - {broker_type}")
+            print(f"📋 Ordre reçu: Asset ID {asset_id} - Broker ID {broker_id} - {amount} - {side}")
             
-            if broker_type == 'saxo':
-                result = place_saxo_order(asset_tradable_id, amount, side)
-            elif broker_type == 'binance':
-                result = place_binance_order(asset_tradable_id, amount, side)
+            # Récupérer l'asset et le broker
+            try:
+                asset = Asset.objects.get(id=asset_id)
+                broker = BrokerCredentials.objects.get(id=broker_id, user=request.user)
+            except (Asset.DoesNotExist, BrokerCredentials.DoesNotExist):
+                return JsonResponse({
+                    'status': 'error',
+                    'message': 'Asset ou broker non trouvé'
+                })
+            
+            # Passer l'ordre selon le type de broker
+            if broker.broker_type == 'saxo':
+                result = place_saxo_order_with_asset(asset, broker, amount, side)
+            elif broker.broker_type == 'binance':
+                result = place_binance_order_with_asset(asset, broker, amount, side, request.user)
             else:
                 return JsonResponse({
                     'status': 'error',
-                    'message': f'Broker {broker_type} non supporté'
+                    'message': f'Broker {broker.broker_type} non supporté'
                 })
             
             return JsonResponse(result)
@@ -1618,25 +2078,21 @@ def place_order_view(request):
                 'message': f'Erreur: {str(e)}'
             })
     
-    # Récupérer les AssetTradable pour le formulaire
-    asset_tradables = AssetTradable.objects.select_related('asset_type', 'market').all()
+    # Récupérer les Assets et les brokers configurés
+    assets = Asset.objects.all().order_by('symbol_clean', 'symbol')
+    brokers = BrokerCredentials.objects.filter(user=request.user, is_active=True).order_by('name')
     
     return render(request, 'trading_app/place_order.html', {
-        'asset_tradables': asset_tradables
+        'assets': assets,
+        'brokers': brokers
     })
 
-def place_saxo_order(asset_tradable_id: int, amount: float, side: str) -> dict:
-    """Passe un ordre sur Saxo Bank"""
+def place_saxo_order_with_asset(asset: Asset, broker: BrokerCredentials, amount: float, side: str) -> dict:
+    """Passe un ordre sur Saxo Bank avec un Asset"""
     try:
-        print(f"🔐 Passage d'ordre Saxo: {asset_tradable_id} - {amount} - {side}")
+        print(f"🔐 Passage d'ordre Saxo: {asset.symbol} - {amount} - {side}")
         
-        # Récupérer l'AssetTradable
-        asset_tradable = AssetTradable.objects.get(id=asset_tradable_id)
-        
-        # Récupérer les credentials Saxo
-        credentials = BrokerCredentials.objects.filter(broker_type='saxo').first()
-        
-        if not credentials or not credentials.saxo_access_token:
+        if not broker.saxo_access_token:
             return {
                 'status': 'error',
                 'message': 'Pas de token Saxo disponible'
@@ -1644,7 +2100,7 @@ def place_saxo_order(asset_tradable_id: int, amount: float, side: str) -> dict:
         
         # Authentifier
         headers = {
-            "Authorization": f"Bearer {credentials.saxo_access_token}",
+            "Authorization": f"Bearer {broker.saxo_access_token}",
             "Content-Type": "application/json"
         }
         
@@ -1670,7 +2126,45 @@ def place_saxo_order(asset_tradable_id: int, amount: float, side: str) -> dict:
         account_key = accounts[0].get("AccountKey")
         print(f"✅ AccountKey récupéré: {account_key}")
         
-        # Récupérer l'UIC depuis l'AssetTradable
+        # Chercher un AllAssets correspondant
+        all_asset = AllAssets.objects.filter(
+            symbol__icontains=asset.symbol_clean or asset.symbol,
+            platform='saxo'
+        ).first()
+        
+        if not all_asset:
+            return {
+                'status': 'error',
+                'message': f'Aucun AllAssets Saxo trouvé pour {asset.symbol}. Veuillez d\'abord ajouter cet actif dans le catalogue AllAssets.'
+            }
+        
+        # Chercher ou créer un AssetTradable correspondant
+        asset_tradable = AssetTradable.objects.filter(
+            symbol__startswith=asset.symbol_clean or asset.symbol,
+            platform='saxo'
+        ).first()
+        
+        if not asset_tradable:
+            # Créer automatiquement un AssetTradable basé sur AllAssets
+            try:
+                asset_type, _ = AssetType.objects.get_or_create(name='Stock')
+                market, _ = Market.objects.get_or_create(name='NASDAQ')
+                
+                asset_tradable = AssetTradable.objects.create(
+                    symbol=all_asset.symbol,
+                    platform='saxo',
+                    all_asset=all_asset,
+                    name=all_asset.name,
+                    asset_type=asset_type,
+                    market=market
+                )
+                print(f"✅ AssetTradable créé automatiquement: {asset_tradable.symbol}")
+            except Exception as e:
+                return {
+                    'status': 'error',
+                    'message': f'Erreur création AssetTradable: {str(e)}'
+                }
+        
         # Pour l'instant, on utilise un UIC par défaut (à adapter selon ta logique)
         uic = 211  # À remplacer par la vraie logique de récupération UIC
         
@@ -1678,7 +2172,7 @@ def place_saxo_order(asset_tradable_id: int, amount: float, side: str) -> dict:
         order_payload = {
             "AccountKey": account_key,
             "Uic": uic,
-            "AssetType": "Stock",  # <-- FORCE ici la valeur "Stock"
+            "AssetType": "Stock",
             "OrderType": "Market",
             "BuySell": side,
             "Amount": int(amount),
@@ -1716,18 +2210,12 @@ def place_saxo_order(asset_tradable_id: int, amount: float, side: str) -> dict:
             'message': f'Erreur: {str(e)}'
         }
 
-def place_binance_order(asset_tradable_id: int, amount: float, side: str) -> dict:
-    """Passe un ordre sur Binance"""
+def place_binance_order_with_asset(asset: Asset, broker: BrokerCredentials, amount: float, side: str, user=None) -> dict:
+    """Passe un ordre sur Binance avec un Asset"""
     try:
-        print(f"🔐 Passage d'ordre Binance: {asset_tradable_id} - {amount} - {side}")
+        print(f"🔐 Passage d'ordre Binance: {asset.symbol} - {amount} - {side}")
         
-        # Récupérer l'AssetTradable
-        asset_tradable = AssetTradable.objects.get(id=asset_tradable_id)
-        
-        # Récupérer les credentials Binance
-        credentials = BrokerCredentials.objects.filter(broker_type='binance').first()
-        
-        if not credentials or not credentials.binance_api_key or not credentials.binance_api_secret:
+        if not broker.binance_api_key or not broker.binance_api_secret:
             return {
                 'status': 'error',
                 'message': 'Pas de credentials Binance disponibles'
@@ -1735,24 +2223,101 @@ def place_binance_order(asset_tradable_id: int, amount: float, side: str) -> dic
         
         # Créer le broker Binance
         from .brokers.binance import BinanceBroker
-        broker = BinanceBroker(credentials.binance_api_key, credentials.binance_api_secret)
+        credentials = {
+            'api_key': broker.binance_api_key,
+            'api_secret': broker.binance_api_secret,
+            'testnet': broker.binance_testnet
+        }
+        binance_broker = BinanceBroker(user, credentials)
         
-        if not broker.authenticate():
+        if not binance_broker.authenticate():
             return {
                 'status': 'error',
                 'message': 'Échec authentification Binance'
             }
         
-        # Passer l'ordre (à implémenter dans BinanceBroker)
-        # result = broker.place_order(asset_tradable.symbol, amount, side)
+        # Chercher un AllAssets correspondant
+        all_asset = AllAssets.objects.filter(
+            symbol__icontains=asset.symbol_clean or asset.symbol,
+            platform='binance'
+        ).first()
         
-        return {
-            'status': 'success',
-            'message': 'Ordre Binance passé avec succès (à implémenter)'
-        }
+        if not all_asset:
+            return {
+                'status': 'error',
+                'message': f'Aucun AllAssets Binance trouvé pour {asset.symbol}. Veuillez d\'abord ajouter cet actif dans le catalogue AllAssets.'
+            }
+        
+        # Chercher ou créer un AssetTradable correspondant
+        asset_tradable = AssetTradable.objects.filter(
+            symbol__startswith=asset.symbol_clean or asset.symbol,
+            platform='binance'
+        ).first()
+        
+        if not asset_tradable:
+            # Créer automatiquement un AssetTradable basé sur AllAssets
+            try:
+                asset_type, _ = AssetType.objects.get_or_create(name='Crypto')
+                market, _ = Market.objects.get_or_create(name='Binance')
+                
+                asset_tradable = AssetTradable.objects.create(
+                    symbol=all_asset.symbol,
+                    platform='binance',
+                    all_asset=all_asset,
+                    name=all_asset.name,
+                    asset_type=asset_type,
+                    market=market
+                )
+                print(f"✅ AssetTradable créé automatiquement: {asset_tradable.symbol}")
+            except Exception as e:
+                return {
+                    'status': 'error',
+                    'message': f'Erreur création AssetTradable: {str(e)}'
+                }
+        
+        # Passer l'ordre
+        try:
+            # Pour Binance, ajouter le suffixe EUR si nécessaire
+            trading_symbol = asset_tradable.symbol
+            if not trading_symbol.endswith('EUR') and not trading_symbol.endswith('USDT'):
+                trading_symbol = f"{trading_symbol}EUR"
+            
+            print(f"🔍 Symbole de trading: {trading_symbol}")
+            
+            result = binance_broker.place_order(
+                symbol=trading_symbol,
+                side=side.upper(),
+                size=Decimal(str(amount)),
+                order_type="MARKET"
+            )
+            
+            print(f"📊 Résultat ordre Binance: {result}")
+            
+            if 'error' in result:
+                return {
+                    'status': 'error',
+                    'message': f'Erreur passage ordre Binance: {result["error"]}',
+                    'details': result
+                }
+            else:
+                return {
+                    'status': 'success',
+                    'message': f'Ordre Binance passé avec succès pour {asset_tradable.symbol}',
+                    'order_id': result.get('orderId'),
+                    'details': result
+                }
+                
+        except Exception as e:
+            print(f"❌ Exception lors du passage d'ordre Binance: {e}")
+            return {
+                'status': 'error',
+                'message': f'Erreur lors du passage d\'ordre: {str(e)}'
+            }
         
     except Exception as e:
         print(f"❌ Erreur passage ordre Binance: {e}")
+        import traceback
+        traceback.print_exc()
         return {
             'status': 'error',
             'message': f'Erreur: {str(e)}'
@@ -1845,7 +2410,7 @@ def binance_trades_ajax(request):
         existing_trades = Trade.objects.filter(
             user=request.user,
             platform='binance'
-        ).select_related('asset_tradable').values_list('timestamp', 'asset_tradable__symbol', 'side', 'size', 'price')
+        ).select_related('asset').values_list('timestamp', 'asset__symbol_clean', 'side', 'size', 'price')
         
         print(f"📊 {len(existing_trades)} trades existants en base de données")
         
@@ -1887,15 +2452,15 @@ def binance_trades_ajax(request):
                     print(f"⚠️ Aucun AllAssets trouvé pour {symbol}, trade ignoré")
                     continue
                 
-                # Créer ou récupérer AssetTradable
-                asset_tradable, created = AssetTradable.objects.get_or_create(
-                    symbol=symbol.upper(),
-                    platform='binance',
+                # Créer ou récupérer Asset (pas besoin d'AssetTradable pour les trades)
+                asset, created = Asset.objects.get_or_create(
+                    symbol=symbol,
                     defaults={
-                        'all_asset': all_asset,
                         'name': symbol,
-                        'asset_type': asset_type,
-                        'market': market
+                        'sector': 'Cryptocurrency',
+                        'industry': 'Digital Assets',
+                        'market_cap': 0.0,
+                        'price_history': 'xxxx'
                     }
                 )
                 
@@ -1913,7 +2478,7 @@ def binance_trades_ajax(request):
                     # Créer le nouveau Trade
                     trade = Trade.objects.create(
                         user=request.user,
-                        asset_tradable=asset_tradable,
+                        asset=asset,
                         size=trade_size,
                         price=trade_price,
                         side=trade_side,
@@ -1935,7 +2500,7 @@ def binance_trades_ajax(request):
         # Formater pour Tabulator
         formatted_trades = [{
             'id': trade.id,
-            'symbol': trade.asset_tradable.symbol if trade.asset_tradable else 'N/A',
+            'symbol': trade.asset.symbol_clean if trade.asset else 'N/A',
             'direction': trade.side,
             'size': float(trade.size),
             'opening_price': float(trade.price),
@@ -2013,8 +2578,7 @@ def sync_saxo_positions(request, broker_id):
         
         # Compter le nombre total de positions pour ce broker
         total_positions = Position.objects.filter(
-            user=broker_creds.user,
-            asset_tradable__platform=broker_creds.broker_type
+            user=broker_creds.user
         ).count()
         
         return JsonResponse({
@@ -2180,7 +2744,7 @@ def binance_positions_ajax(request):
         # Récupérer les positions existantes en base pour comparaison
         existing_positions = Position.objects.filter(
             user=request.user
-        ).values_list('asset_tradable__symbol', 'side', 'size')
+        ).values_list('asset__symbol_clean', 'side', 'size')
         
         existing_positions_set = set()
         for position in existing_positions:
@@ -2212,10 +2776,16 @@ def binance_positions_ajax(request):
                     print(f"⚠️ Aucun AllAssets trouvé pour {asset_symbol}, position ignorée")
                     continue
                 
-                asset_tradable, created = AssetTradable.objects.get_or_create(
-                    symbol=asset_symbol.upper(),
-                    platform='binance',
-                    defaults={'all_asset': all_asset, 'name': asset_symbol, 'asset_type': asset_type, 'market': market}
+                # Utiliser directement l'Asset (pas besoin d'AssetTradable pour les positions)
+                asset, created = Asset.objects.get_or_create(
+                    symbol=asset_symbol,
+                    defaults={
+                        'name': asset_symbol,
+                        'sector': 'Cryptocurrency',
+                        'industry': 'Digital Assets',
+                        'market_cap': 0.0,
+                        'price_history': 'xxxx'
+                    }
                 )
                 
                 position_size = float(position_data.get('total', 0))
@@ -2226,7 +2796,7 @@ def binance_positions_ajax(request):
                 if position_key not in existing_positions_set and position_size > 0:
                     position = Position.objects.create(
                         user=request.user,
-                        asset_tradable=asset_tradable,
+                        asset=asset,
                         size=position_size,
                         entry_price=0.0,  # Pas de prix d'entrée pour les balances
                         current_price=0.0,  # À récupérer si nécessaire
@@ -2244,15 +2814,15 @@ def binance_positions_ajax(request):
                 continue
         
         # Récupérer toutes les positions sauvegardées pour l'affichage
-        saved_positions = Position.objects.filter(user=request.user).select_related('asset_tradable')
+        saved_positions = Position.objects.filter(user=request.user).select_related('asset')
         
         formatted_positions = []
         for position in saved_positions:
             formatted_positions.append({
                 'id': position.id,
-                'asset_name': position.asset_tradable.name,
-                'asset_symbol': position.asset_tradable.symbol,
-                'underlying_asset_name': position.asset_tradable.name,
+                'asset_name': position.asset.name if position.asset else 'N/A',
+                'asset_symbol': position.asset.symbol_clean if position.asset else 'N/A',
+                'underlying_asset_name': position.asset.name if position.asset else 'N/A',
                 'size': str(position.size),
                 'entry_price': str(position.entry_price),
                 'current_price': str(position.current_price),
@@ -2277,6 +2847,99 @@ def binance_positions_ajax(request):
 
 
 
+
+@login_required
+@csrf_exempt
+def get_broker_balance(request, broker_id):
+    """Récupère le solde d'un broker spécifique"""
+    try:
+        broker = BrokerCredentials.objects.get(id=broker_id, user=request.user, is_active=True)
+        
+        # Créer l'instance du broker
+        from .brokers.factory import BrokerFactory
+        credentials = broker.get_credentials_dict()
+        broker_instance = BrokerFactory.create_broker(broker.broker_type, request.user, credentials)
+        
+        # Récupérer le solde
+        if hasattr(broker_instance, 'get_balance'):
+            print(f"🔍 Récupération solde pour broker {broker.name} ({broker.broker_type})")
+            balance = broker_instance.get_balance()
+            print(f"📊 Balance brute reçue: {balance} (type: {type(balance)})")
+            
+            # Gérer les différents formats de retour
+            if balance is None:
+                balance = {'EUR': 0.0, 'USD': 0.0}
+            elif isinstance(balance, dict):
+                # Format Binance: {'EUR': 100.0, 'USD': 50.0}
+                pass
+            elif hasattr(balance, '__dict__'):
+                # Format Saxo: objet CashBalance
+                balance_dict = {}
+                for attr in dir(balance):
+                    if not attr.startswith('_') and not callable(getattr(balance, attr)):
+                        value = getattr(balance, attr)
+                        if isinstance(value, (int, float)) and value > 0:
+                            balance_dict[attr] = float(value)
+                balance = balance_dict if balance_dict else {'EUR': 0.0, 'USD': 0.0}
+            elif isinstance(balance, (list, tuple)):
+                # Format Saxo: liste de balances
+                balance_dict = {}
+                for item in balance:
+                    if isinstance(item, dict):
+                        currency = item.get('Currency', 'EUR')
+                        amount = float(item.get('Amount', 0))
+                        if amount > 0:
+                            balance_dict[currency] = amount
+                balance = balance_dict if balance_dict else {'EUR': 0.0, 'USD': 0.0}
+            elif isinstance(balance, (int, float)):
+                # Format Saxo: montant simple (probablement en EUR)
+                balance = {'EUR': float(balance)} if balance > 0 else {'EUR': 0.0}
+            else:
+                print(f"⚠️ Format de balance inconnu: {type(balance)} - {balance}")
+                balance = {'EUR': 0.0, 'USD': 0.0}
+        else:
+            balance = {'EUR': 0.0, 'USD': 0.0}  # Valeur par défaut
+        
+        return JsonResponse({
+            'success': True,
+            'balance': balance
+        })
+        
+    except BrokerCredentials.DoesNotExist:
+        return JsonResponse({'success': False, 'error': 'Broker non trouvé'}, status=404)
+    except Exception as e:
+        print(f"❌ Erreur récupération solde broker {broker_id}: {e}")
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+@login_required
+@csrf_exempt
+def get_asset_price(request, asset_id):
+    """Récupère le prix actuel d'un asset"""
+    try:
+        asset = Asset.objects.get(id=asset_id)
+        
+        # Extraire le prix depuis l'historique
+        current_price = 0.0
+        if asset.price_history and asset.price_history != 'xxxx':
+            try:
+                price_data = json.loads(asset.price_history)
+                if price_data:
+                    current_price = float(price_data[-1]['close'])
+            except (json.JSONDecodeError, KeyError, IndexError):
+                pass
+        
+        return JsonResponse({
+            'success': True,
+            'price': current_price,
+            'symbol': asset.symbol_clean or asset.symbol
+        })
+        
+    except Asset.DoesNotExist:
+        return JsonResponse({'success': False, 'error': 'Asset non trouvé'}, status=404)
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
 
 @login_required
 @csrf_exempt

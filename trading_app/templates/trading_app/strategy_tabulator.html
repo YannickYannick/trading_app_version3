@@ -1,24 +1,974 @@
 {% extends "base.html" %}
-{% block title %}Strategies Tabulator{% endblock %}
+{% load static %}
+
+{% block title %}Stratégies de Trading{% endblock %}
+
 {% block content %}
-<h1>Strategies - Tableau dynamique</h1>
-<div id="strategy-table"></div>
+<div class="container-fluid">
+    <div class="row mb-3">
+        <div class="col">
+            <h1>Stratégies de Trading</h1>
+        </div>
+        <div class="col-auto">
+            <button type="button" class="btn btn-success me-2" data-bs-toggle="modal" data-bs-target="#executeStrategyModal">
+                <i class="fas fa-play"></i> Exécuter Stratégie
+            </button>
+            <button type="button" class="btn btn-info me-2" data-bs-toggle="modal" data-bs-target="#executionHistoryModal">
+                <i class="fas fa-history"></i> Historique
+            </button>
+            <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addStrategyModal">
+                <i class="fas fa-plus"></i> Nouvelle Stratégie
+            </button>
+        </div>
+    </div>
+
+    <!-- Tableau des stratégies -->
+    <div class="card">
+        <div class="card-body">
+            <div id="strategy-table"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal pour ajouter/éditer une stratégie -->
+<div class="modal fade" id="addStrategyModal" tabindex="-1" aria-labelledby="addStrategyModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="addStrategyModalLabel">Nouvelle Stratégie</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="strategyForm">
+                    <div class="row">
+                        <!-- Informations de base -->
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="strategyName" class="form-label">Nom de la stratégie *</label>
+                                <input type="text" class="form-control" id="strategyName" required>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="strategyAsset" class="form-label">Asset *</label>
+                                <select class="form-control" id="strategyAsset" required>
+                                    <option value="">Sélectionner un asset...</option>
+                                </select>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="strategyAlgorithm" class="form-label">Algorithme *</label>
+                                <select class="form-control" id="strategyAlgorithm" required>
+                                    <option value="">Sélectionner un algorithme...</option>
+                                    <option value="threshold">Seuils (Threshold)</option>
+                                    <option value="ma_crossover">Moving Average Crossover</option>
+                                    <option value="rsi">RSI (Relative Strength Index)</option>
+                                    <option value="bollinger">Bollinger Bands</option>
+                                    <option value="macd">MACD</option>
+                                    <option value="grid">Grid Trading</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <!-- Configuration -->
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="strategyBroker" class="form-label">Broker *</label>
+                                <select class="form-control" id="strategyBroker" required>
+                                    <option value="">Sélectionner un broker...</option>
+                                </select>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="strategyExecutionMode" class="form-label">Mode d'exécution *</label>
+                                <select class="form-control" id="strategyExecutionMode" required>
+                                    <option value="simulation">Simulation</option>
+                                    <option value="paper_trading">Paper Trading</option>
+                                    <option value="live_trading">Trading Réel</option>
+                                </select>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="strategyFrequency" class="form-label">Fréquence de vérification (minutes)</label>
+                                <input type="number" class="form-control" id="strategyFrequency" value="45" min="1" max="1440">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Paramètres de l'algorithme -->
+                    <div class="mb-3">
+                        <label class="form-label">Paramètres de l'algorithme</label>
+                        <div id="algorithmParameters">
+                            <!-- Les paramètres seront générés dynamiquement -->
+                        </div>
+                    </div>
+                    
+                    <!-- Commentaires -->
+                    <div class="mb-3">
+                        <label for="strategyComments" class="form-label">Commentaires</label>
+                        <textarea class="form-control" id="strategyComments" rows="3"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
+                <button type="button" class="btn btn-primary" id="saveStrategyBtn">Enregistrer</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal pour voir les détails d'une stratégie -->
+<div class="modal fade" id="strategyDetailsModal" tabindex="-1" aria-labelledby="strategyDetailsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="strategyDetailsModalLabel">Détails de la Stratégie</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="strategyDetails">
+                    <!-- Les détails seront chargés dynamiquement -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fermer</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal pour éditer une stratégie -->
+<div class="modal fade" id="editStrategyModal" tabindex="-1" aria-labelledby="editStrategyModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="editStrategyModalLabel">Modifier la Stratégie</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editStrategyForm">
+                    <input type="hidden" id="editStrategyId">
+                    <div class="row">
+                        <!-- Informations de base -->
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="editStrategyName" class="form-label">Nom de la stratégie *</label>
+                                <input type="text" class="form-control" id="editStrategyName" required>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="editStrategyAsset" class="form-label">Asset *</label>
+                                <select class="form-control" id="editStrategyAsset" required>
+                                    <option value="">Sélectionner un asset...</option>
+                                </select>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="editStrategyAlgorithm" class="form-label">Algorithme *</label>
+                                <select class="form-control" id="editStrategyAlgorithm" required>
+                                    <option value="">Sélectionner un algorithme...</option>
+                                    <option value="threshold">Seuils (Threshold)</option>
+                                    <option value="ma_crossover">Moving Average Crossover</option>
+                                    <option value="rsi">RSI (Relative Strength Index)</option>
+                                    <option value="bollinger">Bollinger Bands</option>
+                                    <option value="macd">MACD</option>
+                                    <option value="grid">Grid Trading</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <!-- Configuration -->
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="editStrategyBroker" class="form-label">Broker *</label>
+                                <select class="form-control" id="editStrategyBroker" required>
+                                    <option value="">Sélectionner un broker...</option>
+                                </select>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="editStrategyExecutionMode" class="form-label">Mode d'exécution *</label>
+                                <select class="form-control" id="editStrategyExecutionMode" required>
+                                    <option value="simulation">Simulation</option>
+                                    <option value="paper_trading">Paper Trading</option>
+                                    <option value="live_trading">Trading Réel</option>
+                                </select>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="editStrategyFrequency" class="form-label">Fréquence de vérification (minutes)</label>
+                                <input type="number" class="form-control" id="editStrategyFrequency" value="45" min="1" max="1440">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Paramètres de l'algorithme -->
+                    <div class="mb-3">
+                        <label class="form-label">Paramètres de l'algorithme</label>
+                        <div id="editAlgorithmParameters">
+                            <!-- Les paramètres seront générés dynamiquement -->
+                        </div>
+                    </div>
+                    
+                    <!-- Commentaires -->
+                    <div class="mb-3">
+                        <label for="editStrategyComments" class="form-label">Commentaires</label>
+                        <textarea class="form-control" id="editStrategyComments" rows="3"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
+                <button type="button" class="btn btn-primary" id="updateStrategyBtn">Mettre à jour</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal pour exécuter une stratégie manuellement -->
+<div class="modal fade" id="executeStrategyModal" tabindex="-1" aria-labelledby="executeStrategyModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="executeStrategyModalLabel">Exécuter Stratégie</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label for="executeStrategySelect" class="form-label">Sélectionner une stratégie</label>
+                    <select class="form-control" id="executeStrategySelect">
+                        <option value="">Choisir une stratégie...</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label for="executeFrequency" class="form-label">Fréquence d'exécution (minutes)</label>
+                    <input type="number" class="form-control" id="executeFrequency" value="45" min="1" max="1440">
+                    <small class="form-text text-muted">Cette fréquence sera appliquée à la stratégie sélectionnée</small>
+                </div>
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle"></i>
+                    <strong>Note:</strong> L'exécution manuelle lance immédiatement la stratégie. 
+                    Pour une exécution automatique, activez la stratégie et elle s'exécutera selon sa fréquence configurée.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
+                <button type="button" class="btn btn-success" id="executeStrategyBtn">Exécuter Maintenant</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal pour l'historique des exécutions -->
+<div class="modal fade" id="executionHistoryModal" tabindex="-1" aria-labelledby="executionHistoryModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="executionHistoryModalLabel">Historique des Exécutions</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Filtres -->
+                <div class="row mb-3">
+                    <div class="col-md-3">
+                        <label for="historyStrategyFilter" class="form-label">Stratégie</label>
+                        <select class="form-control" id="historyStrategyFilter">
+                            <option value="">Toutes les stratégies</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="historySignalFilter" class="form-label">Signal</label>
+                        <select class="form-control" id="historySignalFilter">
+                            <option value="">Tous les signaux</option>
+                            <option value="BUY">Achat</option>
+                            <option value="SELL">Vente</option>
+                            <option value="HOLD">Attendre</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="historyDateFrom" class="form-label">Date début</label>
+                        <input type="date" class="form-control" id="historyDateFrom">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="historyDateTo" class="form-label">Date fin</label>
+                        <input type="date" class="form-control" id="historyDateTo">
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-12">
+                        <button type="button" class="btn btn-primary" id="applyHistoryFilters">
+                            <i class="fas fa-filter"></i> Appliquer les filtres
+                        </button>
+                        <button type="button" class="btn btn-secondary" id="clearHistoryFilters">
+                            <i class="fas fa-times"></i> Effacer les filtres
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Tableau de l'historique -->
+                <div id="execution-history-table"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fermer</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- CSS et JS -->
 <link href="https://cdnjs.cloudflare.com/ajax/libs/tabulator/5.0.3/css/tabulator.min.css" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tabulator/5.0.3/js/tabulator.min.js"></script>
+
 <script>
-    var tabledata = JSON.parse('{{ data_strategies|default:"[]"|escapejs }}');
-    var columns = [];
-    if (tabledata.length > 0) {
-        Object.keys(tabledata[0]).forEach(function(key) {
-            columns.push({ title: key, field: key, editor: "input" });
+// Données globales
+var strategiesData = {{ data_strategies|default:"[]"|safe }};
+var assetsData = {{ assets_data|default:"[]"|safe }};
+var brokersData = {{ brokers_data|default:"[]"|safe }};
+
+// Configuration des paramètres par algorithme
+var algorithmParameters = {
+    'threshold': [
+        {name: 'threshold_low', label: 'Seuil bas', type: 'number', default: 100.0},
+        {name: 'threshold_high', label: 'Seuil haut', type: 'number', default: 200.0},
+        {name: 'order_size', label: 'Taille ordre', type: 'number', default: 1.0},
+        {name: 'stop_loss', label: 'Stop Loss (%)', type: 'number', default: 5.0}
+    ],
+    'ma_crossover': [
+        {name: 'ma1_period', label: 'Période MA1', type: 'number', default: 20},
+        {name: 'ma2_period', label: 'Période MA2', type: 'number', default: 50},
+        {name: 'order_size', label: 'Taille ordre', type: 'number', default: 1.0},
+        {name: 'stop_loss', label: 'Stop Loss (%)', type: 'number', default: 5.0}
+    ],
+    'rsi': [
+        {name: 'rsi_period', label: 'Période RSI', type: 'number', default: 14},
+        {name: 'rsi_low', label: 'Seuil bas RSI', type: 'number', default: 30},
+        {name: 'rsi_high', label: 'Seuil haut RSI', type: 'number', default: 70},
+        {name: 'order_size', label: 'Taille ordre', type: 'number', default: 1.0},
+        {name: 'stop_loss', label: 'Stop Loss (%)', type: 'number', default: 5.0}
+    ],
+    'bollinger': [
+        {name: 'bb_period', label: 'Période', type: 'number', default: 20},
+        {name: 'bb_std', label: 'Écart-type', type: 'number', default: 2.0},
+        {name: 'order_size', label: 'Taille ordre', type: 'number', default: 1.0},
+        {name: 'stop_loss', label: 'Stop Loss (%)', type: 'number', default: 5.0}
+    ],
+    'macd': [
+        {name: 'macd_fast', label: 'Période rapide', type: 'number', default: 12},
+        {name: 'macd_slow', label: 'Période lente', type: 'number', default: 26},
+        {name: 'macd_signal', label: 'Période signal', type: 'number', default: 9},
+        {name: 'order_size', label: 'Taille ordre', type: 'number', default: 1.0},
+        {name: 'stop_loss', label: 'Stop Loss (%)', type: 'number', default: 5.0}
+    ],
+    'grid': [
+        {name: 'grid_min', label: 'Prix minimum', type: 'number', default: 100.0},
+        {name: 'grid_max', label: 'Prix maximum', type: 'number', default: 200.0},
+        {name: 'grid_levels', label: 'Nombre de niveaux', type: 'number', default: 10},
+        {name: 'order_size', label: 'Taille ordre', type: 'number', default: 1.0},
+        {name: 'stop_loss', label: 'Stop Loss (%)', type: 'number', default: 5.0}
+    ]
+};
+
+// Initialisation
+document.addEventListener('DOMContentLoaded', function() {
+    initializeTable();
+    populateDropdowns();
+    setupEventListeners();
+    initializeModals();
+});
+
+// Initialiser le tableau
+function initializeTable() {
+    var table = new Tabulator("#strategy-table", {
+        height: "500px",
+        layout: "fitColumns",
+        data: strategiesData,
+        columns: [
+            {title: "Nom", field: "name", headerFilter: "input"},
+            {title: "Asset", field: "asset_name", headerFilter: "input"},
+            {title: "Algorithme", field: "algorithm_type_display", headerFilter: "select"},
+            {title: "Broker", field: "broker_name", headerFilter: "input"},
+            {title: "Mode", field: "execution_mode_display", headerFilter: "select"},
+            {title: "Statut", field: "status", headerFilter: "select", formatter: function(cell) {
+                var status = cell.getValue();
+                var color = status === 'active' ? 'success' : status === 'inactive' ? 'secondary' : 'warning';
+                return '<span class="badge bg-' + color + '">' + status + '</span>';
+            }},
+            {title: "Fréquence", field: "check_frequency", formatter: function(cell) {
+                return cell.getValue() + ' min';
+            }},
+            {title: "Trades", field: "total_trades", formatter: function(cell) {
+                var total = cell.getValue();
+                var successful = cell.getRow().getData().successful_trades || 0;
+                return total + ' (' + successful + ' réussis)';
+            }},
+            {title: "P&L Total", field: "total_pnl", formatter: function(cell) {
+                var value = parseFloat(cell.getValue());
+                var color = value >= 0 ? 'success' : 'danger';
+                return '<span class="text-' + color + '">' + value.toFixed(2) + ' €</span>';
+            }},
+            {title: "Actions", formatter: function(cell) {
+                var row = cell.getRow();
+                var data = row.getData();
+                return '<button class="btn btn-sm btn-info me-1" onclick="viewStrategy(' + data.id + ')">Voir</button>' +
+                       '<button class="btn btn-sm btn-primary me-1" onclick="editStrategy(' + data.id + ')">Modifier</button>' +
+                       '<button class="btn btn-sm btn-warning me-1" onclick="toggleStrategy(' + data.id + ')">' + 
+                       (data.status === 'active' ? 'Pause' : 'Activer') + '</button>' +
+                       '<button class="btn btn-sm btn-danger" onclick="deleteStrategy(' + data.id + ')">Suppr</button>';
+            }}
+        ]
+    });
+}
+
+// Remplir les dropdowns
+function populateDropdowns() {
+    // Assets
+    var assetSelect = document.getElementById('strategyAsset');
+    var editAssetSelect = document.getElementById('editStrategyAsset');
+    assetsData.forEach(function(asset) {
+        var option = document.createElement('option');
+        option.value = asset.id;
+        option.textContent = asset.symbol_clean + ' - ' + asset.name;
+        assetSelect.appendChild(option);
+        
+        // Dupliquer pour le modal d'édition
+        var editOption = document.createElement('option');
+        editOption.value = asset.id;
+        editOption.textContent = asset.symbol_clean + ' - ' + asset.name;
+        editAssetSelect.appendChild(editOption);
+    });
+    
+    // Brokers
+    var brokerSelect = document.getElementById('strategyBroker');
+    var editBrokerSelect = document.getElementById('editStrategyBroker');
+    brokersData.forEach(function(broker) {
+        var option = document.createElement('option');
+        option.value = broker.id;
+        option.textContent = broker.name + ' (' + broker.broker_type + ')';
+        brokerSelect.appendChild(option);
+        
+        // Dupliquer pour le modal d'édition
+        var editOption = document.createElement('option');
+        editOption.value = broker.id;
+        editOption.textContent = broker.name + ' (' + broker.broker_type + ')';
+        editBrokerSelect.appendChild(editOption);
+    });
+}
+
+// Configurer les event listeners
+function setupEventListeners() {
+    // Changement d'algorithme
+    document.getElementById('strategyAlgorithm').addEventListener('change', function() {
+        updateAlgorithmParameters();
+    });
+    
+    // Changement d'algorithme dans l'édition
+    document.getElementById('editStrategyAlgorithm').addEventListener('change', function() {
+        updateEditAlgorithmParameters(this.value, {});
+    });
+    
+    // Sauvegarder la stratégie
+    document.getElementById('saveStrategyBtn').addEventListener('click', function() {
+        saveStrategy();
+    });
+    
+    // Mettre à jour la stratégie
+    document.getElementById('updateStrategyBtn').addEventListener('click', function() {
+        updateStrategy();
+    });
+    
+    // Exécuter stratégie
+    document.getElementById('executeStrategyBtn').addEventListener('click', function() {
+        executeStrategy();
+    });
+    
+    // Historique - Appliquer filtres
+    document.getElementById('applyHistoryFilters').addEventListener('click', function() {
+        loadExecutionHistory();
+    });
+    
+    // Historique - Effacer filtres
+    document.getElementById('clearHistoryFilters').addEventListener('click', function() {
+        clearHistoryFilters();
+    });
+    
+    // Charger l'historique quand le modal s'ouvre
+    document.getElementById('executionHistoryModal').addEventListener('shown.bs.modal', function() {
+        loadExecutionHistory();
+    });
+}
+
+// Mettre à jour les paramètres selon l'algorithme
+function updateAlgorithmParameters() {
+    var algorithm = document.getElementById('strategyAlgorithm').value;
+    var container = document.getElementById('algorithmParameters');
+    container.innerHTML = '';
+    
+    if (algorithm && algorithmParameters[algorithm]) {
+        algorithmParameters[algorithm].forEach(function(param) {
+            var div = document.createElement('div');
+            div.className = 'mb-2';
+            div.innerHTML = `
+                <label for="param_${param.name}" class="form-label">${param.label}</label>
+                <input type="${param.type}" class="form-control" id="param_${param.name}" 
+                       value="${param.default}" step="any">
+            `;
+            container.appendChild(div);
         });
     }
-    var table = new Tabulator("#strategy-table", {
+}
+
+// Sauvegarder la stratégie
+function saveStrategy() {
+    var frequency = parseInt(document.getElementById('strategyFrequency').value);
+    if (isNaN(frequency) || frequency < 1 || frequency > 1440) {
+        alert('Fréquence invalide (doit être entre 1 et 1440 minutes)');
+        return;
+    }
+    
+    var formData = {
+        name: document.getElementById('strategyName').value,
+        asset: document.getElementById('strategyAsset').value,
+        algorithm_type: document.getElementById('strategyAlgorithm').value,
+        broker: document.getElementById('strategyBroker').value,
+        execution_mode: document.getElementById('strategyExecutionMode').value,
+        check_frequency: frequency,
+        comments: document.getElementById('strategyComments').value,
+        parameters: getAlgorithmParameters()
+    };
+    
+    // Validation
+    if (!formData.name || !formData.asset || !formData.algorithm_type || !formData.broker) {
+        alert('Veuillez remplir tous les champs obligatoires');
+        return;
+    }
+    
+    // Envoyer à l'API
+    fetch('/strategies/create/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCookie('csrftoken')
+        },
+        body: JSON.stringify(formData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('Stratégie créée avec succès !');
+            location.reload();
+        } else {
+            alert('Erreur: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Erreur:', error);
+        alert('Erreur lors de la création de la stratégie');
+    });
+}
+
+// Récupérer les paramètres de l'algorithme
+function getAlgorithmParameters() {
+    var algorithm = document.getElementById('strategyAlgorithm').value;
+    var params = {};
+    
+    if (algorithm && algorithmParameters[algorithm]) {
+        algorithmParameters[algorithm].forEach(function(param) {
+            var value = document.getElementById('param_' + param.name).value;
+            params[param.name] = parseFloat(value);
+        });
+    }
+    
+    return params;
+}
+
+// Voir les détails d'une stratégie
+function viewStrategy(strategyId) {
+    fetch('/strategies/' + strategyId + '/details/')
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            document.getElementById('strategyDetails').innerHTML = formatStrategyDetails(data.strategy);
+            new bootstrap.Modal(document.getElementById('strategyDetailsModal')).show();
+        } else {
+            alert('Erreur: ' + data.error);
+        }
+    });
+}
+
+// Éditer une stratégie
+function editStrategy(strategyId) {
+    fetch('/strategies/' + strategyId + '/details/')
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            populateEditForm(data.strategy);
+            new bootstrap.Modal(document.getElementById('editStrategyModal')).show();
+        } else {
+            alert('Erreur: ' + data.error);
+        }
+    });
+}
+
+// Remplir le formulaire d'édition
+function populateEditForm(strategy) {
+    // ID de la stratégie
+    document.getElementById('editStrategyId').value = strategy.id;
+    
+    // Informations de base
+    document.getElementById('editStrategyName').value = strategy.name;
+    document.getElementById('editStrategyAsset').value = strategy.asset_id || '';
+    document.getElementById('editStrategyAlgorithm').value = strategy.algorithm_type;
+    document.getElementById('editStrategyBroker').value = strategy.broker_id || '';
+    document.getElementById('editStrategyExecutionMode').value = strategy.execution_mode;
+    document.getElementById('editStrategyFrequency').value = strategy.check_frequency;
+    document.getElementById('editStrategyComments').value = strategy.comments || '';
+    
+    // Générer les paramètres de l'algorithme
+    updateEditAlgorithmParameters(strategy.algorithm_type, strategy.parameters);
+}
+
+// Mettre à jour les paramètres d'édition selon l'algorithme
+function updateEditAlgorithmParameters(algorithm, currentParams) {
+    var container = document.getElementById('editAlgorithmParameters');
+    container.innerHTML = '';
+    
+    if (algorithm && algorithmParameters[algorithm]) {
+        algorithmParameters[algorithm].forEach(function(param) {
+            var div = document.createElement('div');
+            div.className = 'mb-2';
+            var currentValue = currentParams && currentParams[param.name] !== undefined ? currentParams[param.name] : param.default;
+            div.innerHTML = `
+                <label for="edit_param_${param.name}" class="form-label">${param.label}</label>
+                <input type="${param.type}" class="form-control" id="edit_param_${param.name}" 
+                       value="${currentValue}" step="any">
+            `;
+            container.appendChild(div);
+        });
+    }
+}
+
+// Mettre à jour une stratégie
+function updateStrategy() {
+    var strategyId = document.getElementById('editStrategyId').value;
+    var frequency = parseInt(document.getElementById('editStrategyFrequency').value);
+    
+    if (isNaN(frequency) || frequency < 1 || frequency > 1440) {
+        alert('Fréquence invalide (doit être entre 1 et 1440 minutes)');
+        return;
+    }
+    
+    var formData = {
+        name: document.getElementById('editStrategyName').value,
+        asset: document.getElementById('editStrategyAsset').value,
+        algorithm_type: document.getElementById('editStrategyAlgorithm').value,
+        broker: document.getElementById('editStrategyBroker').value,
+        execution_mode: document.getElementById('editStrategyExecutionMode').value,
+        check_frequency: frequency,
+        comments: document.getElementById('editStrategyComments').value,
+        parameters: getEditAlgorithmParameters()
+    };
+    
+    // Validation
+    if (!formData.name || !formData.asset || !formData.algorithm_type || !formData.broker) {
+        alert('Veuillez remplir tous les champs obligatoires');
+        return;
+    }
+    
+    // Envoyer à l'API
+    fetch('/strategies/' + strategyId + '/update/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCookie('csrftoken')
+        },
+        body: JSON.stringify(formData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('Stratégie mise à jour avec succès !');
+            location.reload();
+        } else {
+            alert('Erreur: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Erreur:', error);
+        alert('Erreur lors de la mise à jour de la stratégie');
+    });
+}
+
+// Récupérer les paramètres d'édition de l'algorithme
+function getEditAlgorithmParameters() {
+    var algorithm = document.getElementById('editStrategyAlgorithm').value;
+    var params = {};
+    
+    if (algorithm && algorithmParameters[algorithm]) {
+        algorithmParameters[algorithm].forEach(function(param) {
+            var value = document.getElementById('edit_param_' + param.name).value;
+            params[param.name] = parseFloat(value);
+        });
+    }
+    
+    return params;
+}
+
+// Formater les détails d'une stratégie
+function formatStrategyDetails(strategy) {
+    return `
+        <div class="row">
+            <div class="col-md-6">
+                <h6>Informations générales</h6>
+                <p><strong>Nom:</strong> ${strategy.name}</p>
+                <p><strong>Asset:</strong> ${strategy.asset_name}</p>
+                <p><strong>Algorithme:</strong> ${strategy.algorithm_type_display}</p>
+                <p><strong>Broker:</strong> ${strategy.broker_name}</p>
+                <p><strong>Mode:</strong> ${strategy.execution_mode_display}</p>
+                <p><strong>Statut:</strong> <span class="badge bg-${strategy.status === 'active' ? 'success' : 'secondary'}">${strategy.status}</span></p>
+            </div>
+            <div class="col-md-6">
+                <h6>Statistiques</h6>
+                <p><strong>Total trades:</strong> ${strategy.total_trades}</p>
+                <p><strong>Trades réussis:</strong> ${strategy.successful_trades}</p>
+                <p><strong>P&L total:</strong> <span class="text-${parseFloat(strategy.total_pnl) >= 0 ? 'success' : 'danger'}">${strategy.total_pnl} €</span></p>
+                <p><strong>Dernière exécution:</strong> ${strategy.last_execution || 'Jamais'}</p>
+                <p><strong>Fréquence:</strong> ${strategy.check_frequency} minutes</p>
+            </div>
+        </div>
+        <div class="row mt-3">
+            <div class="col-12">
+                <h6>Paramètres</h6>
+                <pre>${JSON.stringify(strategy.parameters, null, 2)}</pre>
+            </div>
+        </div>
+        ${strategy.comments ? `
+        <div class="row mt-3">
+            <div class="col-12">
+                <h6>Commentaires</h6>
+                <p>${strategy.comments}</p>
+            </div>
+        </div>
+        ` : ''}
+    `;
+}
+
+// Activer/Désactiver une stratégie
+function toggleStrategy(strategyId) {
+    var action = confirm('Voulez-vous changer le statut de cette stratégie ?');
+    if (action) {
+        fetch('/strategies/' + strategyId + '/toggle/', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': getCookie('csrftoken')
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                location.reload();
+            } else {
+                alert('Erreur: ' + data.error);
+            }
+        });
+    }
+}
+
+// Supprimer une stratégie
+function deleteStrategy(strategyId) {
+    var action = confirm('Êtes-vous sûr de vouloir supprimer cette stratégie ?');
+    if (action) {
+        fetch('/strategies/' + strategyId + '/delete/', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': getCookie('csrftoken')
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                location.reload();
+            } else {
+                alert('Erreur: ' + data.error);
+            }
+        });
+    }
+}
+
+// Fonction utilitaire pour récupérer le cookie CSRF
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+
+// Variables globales pour l'historique
+var executionHistoryTable = null;
+var executionHistoryData = [];
+
+// Initialiser les modals
+function initializeModals() {
+    // Remplir le dropdown des stratégies pour l'exécution
+    var executeSelect = document.getElementById('executeStrategySelect');
+    strategiesData.forEach(function(strategy) {
+        var option = document.createElement('option');
+        option.value = strategy.id;
+        option.textContent = strategy.name + ' (' + strategy.asset_name + ')';
+        executeSelect.appendChild(option);
+    });
+    
+    // Remplir le dropdown des stratégies pour l'historique
+    var historySelect = document.getElementById('historyStrategyFilter');
+    strategiesData.forEach(function(strategy) {
+        var option = document.createElement('option');
+        option.value = strategy.id;
+        option.textContent = strategy.name + ' (' + strategy.asset_name + ')';
+        historySelect.appendChild(option);
+    });
+    
+    // Initialiser le tableau d'historique
+    initializeHistoryTable();
+}
+
+// Initialiser le tableau d'historique
+function initializeHistoryTable() {
+    executionHistoryTable = new Tabulator("#execution-history-table", {
         height: "400px",
         layout: "fitColumns",
-        reactiveData: true,
-        data: tabledata,
-        columns: columns
+        data: [],
+        columns: [
+            {title: "Date", field: "execution_time", formatter: function(cell) {
+                return new Date(cell.getValue()).toLocaleString('fr-FR');
+            }},
+            {title: "Stratégie", field: "strategy_name"},
+            {title: "Signal", field: "signal", formatter: function(cell) {
+                var signal = cell.getValue();
+                var color = signal === 'BUY' ? 'success' : signal === 'SELL' ? 'danger' : 'secondary';
+                return '<span class="badge bg-' + color + '">' + signal + '</span>';
+            }},
+            {title: "Force", field: "signal_strength", formatter: function(cell) {
+                return (cell.getValue() * 100).toFixed(1) + '%';
+            }},
+            {title: "Prix", field: "current_price", formatter: function(cell) {
+                return parseFloat(cell.getValue()).toFixed(2) + ' €';
+            }},
+            {title: "Ordre exécuté", field: "order_executed", formatter: function(cell) {
+                return cell.getValue() ? '<span class="badge bg-success">Oui</span>' : '<span class="badge bg-secondary">Non</span>';
+            }},
+            {title: "Taille", field: "order_size", formatter: function(cell) {
+                return cell.getValue() ? parseFloat(cell.getValue()).toFixed(2) : '-';
+            }},
+            {title: "Prix ordre", field: "order_price", formatter: function(cell) {
+                return cell.getValue() ? parseFloat(cell.getValue()).toFixed(2) + ' €' : '-';
+            }},
+            {title: "Durée", field: "execution_duration", formatter: function(cell) {
+                return cell.getValue() ? (cell.getValue() * 1000).toFixed(0) + ' ms' : '-';
+            }},
+            {title: "Erreur", field: "error_message", formatter: function(cell) {
+                return cell.getValue() ? '<span class="text-danger">' + cell.getValue() + '</span>' : '-';
+            }}
+        ]
     });
+}
+
+// Exécuter une stratégie manuellement
+function executeStrategy() {
+    var strategyId = document.getElementById('executeStrategySelect').value;
+    var frequency = parseInt(document.getElementById('executeFrequency').value);
+    
+    if (!strategyId) {
+        alert('Veuillez sélectionner une stratégie');
+        return;
+    }
+    
+    if (isNaN(frequency) || frequency < 1 || frequency > 1440) {
+        alert('Fréquence invalide (doit être entre 1 et 1440 minutes)');
+        return;
+    }
+    
+    // Mettre à jour la fréquence de la stratégie
+    fetch('/strategies/' + strategyId + '/update-frequency/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCookie('csrftoken')
+        },
+        body: JSON.stringify({frequency: frequency})
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Exécuter la stratégie
+            return fetch('/strategies/' + strategyId + '/execute/', {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': getCookie('csrftoken')
+                }
+            });
+        } else {
+            throw new Error(data.error);
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('Stratégie exécutée avec succès !\nSignal: ' + data.signal + '\nRaison: ' + data.reason);
+            // Fermer le modal
+            bootstrap.Modal.getInstance(document.getElementById('executeStrategyModal')).hide();
+        } else {
+            alert('Erreur lors de l\'exécution: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Erreur:', error);
+        alert('Erreur lors de l\'exécution de la stratégie');
+    });
+}
+
+// Charger l'historique des exécutions
+function loadExecutionHistory() {
+    var strategyId = document.getElementById('historyStrategyFilter').value;
+    var signal = document.getElementById('historySignalFilter').value;
+    var dateFrom = document.getElementById('historyDateFrom').value;
+    var dateTo = document.getElementById('historyDateTo').value;
+    
+    var params = new URLSearchParams();
+    if (strategyId) params.append('strategy', strategyId);
+    if (signal) params.append('signal', signal);
+    if (dateFrom) params.append('date_from', dateFrom);
+    if (dateTo) params.append('date_to', dateTo);
+    
+    fetch('/strategies/execution-history/?' + params.toString())
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            executionHistoryData = data.executions;
+            executionHistoryTable.setData(executionHistoryData);
+        } else {
+            alert('Erreur: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Erreur:', error);
+        alert('Erreur lors du chargement de l\'historique');
+    });
+}
+
+// Effacer les filtres de l'historique
+function clearHistoryFilters() {
+    document.getElementById('historyStrategyFilter').value = '';
+    document.getElementById('historySignalFilter').value = '';
+    document.getElementById('historyDateFrom').value = '';
+    document.getElementById('historyDateTo').value = '';
+    loadExecutionHistory();
+}
 </script>
 {% endblock %}

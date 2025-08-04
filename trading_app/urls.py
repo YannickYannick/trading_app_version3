@@ -37,8 +37,18 @@ urlpatterns = [
     path('assets/autocomplete/', views.asset_autocomplete, name='asset_autocomplete'),
     path('assets/create/', views.create_asset, name='create_asset'),
     path('assets/<int:asset_id>/price-history/', views.get_asset_price_history, name='get_asset_price_history'),
+    path('assets/<int:asset_id>/price/', views.get_asset_price, name='get_asset_price'),
+    path('brokers/<int:broker_id>/balance/', views.get_broker_balance, name='get_broker_balance'),
     
     path('strategies/tabulator/', views.strategy_tabulator, name='strategy_tabulator'),
+    path('strategies/create/', views.create_strategy, name='create_strategy'),
+    path('strategies/<int:strategy_id>/details/', views.strategy_details, name='strategy_details'),
+    path('strategies/<int:strategy_id>/toggle/', views.toggle_strategy, name='toggle_strategy'),
+    path('strategies/<int:strategy_id>/delete/', views.delete_strategy, name='delete_strategy'),
+    path('strategies/<int:strategy_id>/execute/', views.execute_strategy, name='execute_strategy'),
+    path('strategies/<int:strategy_id>/update-frequency/', views.update_strategy_frequency, name='update_strategy_frequency'),
+    path('strategies/<int:strategy_id>/update/', views.update_strategy, name='update_strategy'),
+    path('strategies/execution-history/', views.execution_history, name='execution_history'),
     
     path('order/place/', views.place_order_view, name='place_order_view'),
     

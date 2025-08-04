@@ -75,7 +75,7 @@ WSGI_APPLICATION = "site_trading_v3.wsgi.application"
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db_test.sqlite3',
+        'NAME': BASE_DIR / 'db_test_1.sqlite3',
     }
 }
 

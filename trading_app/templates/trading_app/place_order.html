@@ -5,60 +5,125 @@
 
 {% block content %}
 <div class="container mt-4">
-    <h1>Passer un Ordre</h1>
+    <h1><i class="fas fa-exchange-alt"></i> Passer un Ordre</h1>
     
     <div class="row">
-        <div class="col-md-6">
+        <div class="col-md-8">
             <div class="card">
                 <div class="card-header">
-                    <h5>Nouvel Ordre</h5>
+                    <h5><i class="fas fa-plus-circle"></i> Nouvel Ordre</h5>
                 </div>
                 <div class="card-body">
                     <form id="order-form">
-                        <div class="mb-3">
-                            <label for="asset_tradable" class="form-label">Actif Tradable</label>
-                            <select class="form-select" id="asset_tradable" name="asset_tradable_id" required>
-                                <option value="">Sélectionner un actif</option>
-                                {% for at in asset_tradables %}
-                                <option value="{{ at.id }}" data-platform="{{ at.platform }}">
-                                    {{ at.symbol }} - {{ at.name }} ({{ at.platform }})
-                                </option>
-                                {% endfor %}
-                            </select>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="broker" class="form-label">Broker *</label>
+                                    <select class="form-select" id="broker" name="broker_id" required>
+                                        <option value="">Sélectionner un broker</option>
+                                        {% for broker in brokers %}
+                                        <option value="{{ broker.id }}" data-type="{{ broker.broker_type }}">
+                                            {{ broker.name }} ({{ broker.broker_type|upper }})
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="asset" class="form-label">Asset *</label>
+                                    <select class="form-select" id="asset" name="asset_id" required>
+                                        <option value="">Sélectionner un asset</option>
+                                        {% for asset in assets %}
+                                        <option value="{{ asset.id }}" data-symbol="{{ asset.symbol_clean|default:asset.symbol }}">
+                                            {{ asset.symbol_clean|default:asset.symbol }} - {{ asset.name }}
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
                         </div>
                         
-                        <div class="mb-3">
-                            <label for="amount" class="form-label">Quantité</label>
-                            <input type="number" class="form-control" id="amount" name="amount" 
-                                   min="1" step="1" required>
+                        <div class="row">
+                            <div class="col-md-4">
+                                <div class="mb-3">
+                                    <label for="amount" class="form-label">Quantité *</label>
+                                    <input type="number" class="form-control" id="amount" name="amount" 
+                                           min="0.01" step="0.01" required>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="mb-3">
+                                    <label for="side" class="form-label">Type d'ordre *</label>
+                                    <select class="form-select" id="side" name="side" required>
+                                        <option value="Buy">Acheter</option>
+                                        <option value="Sell">Vendre</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="mb-3">
+                                    <label for="order_type" class="form-label">Type d'ordre</label>
+                                    <select class="form-select" id="order_type" name="order_type">
+                                        <option value="MARKET" selected>Marché</option>
+                                        <option value="LIMIT">Limite</option>
+                                    </select>
+                                </div>
+                            </div>
                         </div>
                         
-                        <div class="mb-3">
-                            <label for="side" class="form-label">Type d'ordre</label>
-                            <select class="form-select" id="side" name="side" required>
-                                <option value="Buy">Acheter</option>
-                                <option value="Sell">Vendre</option>
-                            </select>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="price" class="form-label">Prix (si limite)</label>
+                                    <input type="number" class="form-control" id="price" name="price" 
+                                           min="0" step="0.01" disabled>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">Coût estimé</label>
+                                    <div class="form-control-plaintext" id="estimated-cost">
+                                        <span class="text-muted">Sélectionnez un asset et une quantité</span>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                         
-                        <div class="mb-3">
-                            <label for="broker_type" class="form-label">Broker</label>
-                            <select class="form-select" id="broker_type" name="broker_type" required>
-                                <option value="saxo">Saxo Bank</option>
-                                <option value="binance">Binance</option>
-                            </select>
-                        </div>
-                        
-                        <button type="submit" class="btn btn-primary">Passer l'ordre</button>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-paper-plane"></i> Passer l'ordre
+                        </button>
                     </form>
                 </div>
             </div>
         </div>
         
-        <div class="col-md-6">
+        <div class="col-md-4">
             <div class="card">
                 <div class="card-header">
-                    <h5>Résultat</h5>
+                    <h5><i class="fas fa-wallet"></i> Solde du Broker</h5>
+                </div>
+                <div class="card-body">
+                    <div id="broker-balance">
+                        <p class="text-muted">Sélectionnez un broker pour voir le solde</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card mt-3">
+                <div class="card-header">
+                    <h5><i class="fas fa-chart-line"></i> Prix de l'Asset</h5>
+                </div>
+                <div class="card-body">
+                    <div id="asset-price">
+                        <p class="text-muted">Sélectionnez un asset pour voir le prix</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card mt-3">
+                <div class="card-header">
+                    <h5><i class="fas fa-info-circle"></i> Résultat</h5>
                 </div>
                 <div class="card-body">
                     <div id="order-result">
@@ -86,15 +151,156 @@ function getCookie(name) {
     return cookieValue;
 }
 
+// Variables globales
+let currentAssetPrice = 0;
+let currentBrokerBalance = {};
+
+// Charger le solde du broker
+function loadBrokerBalance(brokerId) {
+    if (!brokerId) {
+        document.getElementById('broker-balance').innerHTML = '<p class="text-muted">Sélectionnez un broker pour voir le solde</p>';
+        return;
+    }
+    
+    document.getElementById('broker-balance').innerHTML = '<p class="text-info">Chargement du solde...</p>';
+    
+    $.ajax({
+        url: `/brokers/${brokerId}/balance/`,
+        type: 'GET',
+        success: function(response) {
+            if (response.success) {
+                currentBrokerBalance = response.balance;
+                let balanceHtml = '<div class="list-group list-group-flush">';
+                
+                if (response.balance && typeof response.balance === 'object') {
+                    for (const [currency, amount] of Object.entries(response.balance)) {
+                        if (amount > 0) {
+                            balanceHtml += `
+                                <div class="list-group-item d-flex justify-content-between align-items-center">
+                                    <span class="badge bg-primary rounded-pill">${currency}</span>
+                                    <span class="fw-bold">${parseFloat(amount).toFixed(2)}</span>
+                                </div>
+                            `;
+                        }
+                    }
+                } else {
+                    balanceHtml += '<div class="list-group-item text-muted">Aucun solde disponible</div>';
+                }
+                
+                balanceHtml += '</div>';
+                document.getElementById('broker-balance').innerHTML = balanceHtml;
+            } else {
+                document.getElementById('broker-balance').innerHTML = `<p class="text-danger">Erreur: ${response.error}</p>`;
+            }
+        },
+        error: function() {
+            document.getElementById('broker-balance').innerHTML = '<p class="text-danger">Erreur lors du chargement du solde</p>';
+        }
+    });
+}
+
+// Charger le prix de l'asset
+function loadAssetPrice(assetId) {
+    if (!assetId) {
+        document.getElementById('asset-price').innerHTML = '<p class="text-muted">Sélectionnez un asset pour voir le prix</p>';
+        currentAssetPrice = 0;
+        updateEstimatedCost();
+        return;
+    }
+    
+    document.getElementById('asset-price').innerHTML = '<p class="text-info">Chargement du prix...</p>';
+    
+    $.ajax({
+        url: `/assets/${assetId}/price/`,
+        type: 'GET',
+        success: function(response) {
+            if (response.success) {
+                currentAssetPrice = response.price;
+                const symbol = response.symbol;
+                
+                if (currentAssetPrice > 0) {
+                    document.getElementById('asset-price').innerHTML = `
+                        <div class="text-center">
+                            <h4 class="text-success">${currentAssetPrice.toFixed(2)}</h4>
+                            <small class="text-muted">${symbol}</small>
+                        </div>
+                    `;
+                } else {
+                    document.getElementById('asset-price').innerHTML = `
+                        <div class="text-center">
+                            <h4 class="text-muted">Non disponible</h4>
+                            <small class="text-muted">${symbol}</small>
+                        </div>
+                    `;
+                }
+                
+                updateEstimatedCost();
+            } else {
+                document.getElementById('asset-price').innerHTML = `<p class="text-danger">Erreur: ${response.error}</p>`;
+            }
+        },
+        error: function() {
+            document.getElementById('asset-price').innerHTML = '<p class="text-danger">Erreur lors du chargement du prix</p>';
+        }
+    });
+}
+
+// Mettre à jour le coût estimé
+function updateEstimatedCost() {
+    const amount = parseFloat(document.getElementById('amount').value) || 0;
+    const cost = amount * currentAssetPrice;
+    
+    if (amount > 0 && currentAssetPrice > 0) {
+        document.getElementById('estimated-cost').innerHTML = `
+            <span class="text-success fw-bold">${cost.toFixed(2)} €</span>
+        `;
+    } else {
+        document.getElementById('estimated-cost').innerHTML = `
+            <span class="text-muted">Sélectionnez un asset et une quantité</span>
+        `;
+    }
+}
+
+// Event listeners
+document.getElementById('broker').addEventListener('change', function() {
+    const brokerId = this.value;
+    loadBrokerBalance(brokerId);
+});
+
+document.getElementById('asset').addEventListener('change', function() {
+    const assetId = this.value;
+    loadAssetPrice(assetId);
+});
+
+document.getElementById('amount').addEventListener('input', function() {
+    updateEstimatedCost();
+});
+
+document.getElementById('order_type').addEventListener('change', function() {
+    const priceInput = document.getElementById('price');
+    if (this.value === 'LIMIT') {
+        priceInput.disabled = false;
+        priceInput.required = true;
+    } else {
+        priceInput.disabled = true;
+        priceInput.required = false;
+        priceInput.value = '';
+    }
+});
+
+// Soumission du formulaire
 document.getElementById('order-form').addEventListener('submit', function(e) {
     e.preventDefault();
     const form = e.target;
     const data = {
-        asset_tradable_id: form.asset_tradable_id.value,
+        asset_id: form.asset_id.value,
+        broker_id: form.broker_id.value,
         amount: form.amount.value,
         side: form.side.value,
-        broker_type: form.broker_type.value
+        order_type: form.order_type.value,
+        price: form.price.value
     };
+    
     const csrftoken = getCookie('csrftoken');
     const resultDiv = document.getElementById('order-result');
     resultDiv.innerHTML = "<span class='text-info'>Envoi de l'ordre...</span>";
