@@ -1,0 +1,9 @@
+{% extends 'cocktails_v2_app/base.html' %}
+{% block title %}Commande confirmée{% endblock %}
+{% block content %}
+<div class="text-center py-5">
+  <div class="display-6 mb-3"><i class="fa fa-check-circle text-success"></i></div>
+  <h1 class="h4">Merci ! Votre commande #{{ order.id }} a été validée.</h1>
+  <a class="btn btn-primary" href="{% url 'cocktails_v2_app:home' %}">Retour boutique</a>
+</div>
+{% endblock %}

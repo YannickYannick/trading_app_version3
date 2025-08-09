@@ -3,32 +3,32 @@
 # Script de déploiement pour Django Trading App
 echo "🚀 Démarrage du déploiement..."
 
-# 1. Charger les variables d'environnement
+# 1. Charger les variables d'environnement (optionnel)
 echo "📋 Chargement des variables d'environnement..."
-source env.production
+# Charger le fichier d'environnement s'il existe
+if [ -f ".env" ]; then
+    source .env
+    echo "✅ Fichier .env chargé"
+elif [ -f "env.production" ]; then
+    source env.production
+    echo "✅ Fichier env.production chargé"
+else
+    echo "✅ Utilisation de la base de données par défaut: db.sqlite3"
+fi
 
 # 2. Installer/updater les dépendances
 echo "📦 Installation des dépendances..."
 pip install -r requirements.txt
 
-# 3. Appliquer les migrations
-echo "🗄️ Application des migrations..."
-python manage.py migrate
+# 3. Configurer la base de données simple
+echo "🗄️ Configuration de la base de données..."
+python setup_simple_database.py
 
 # 4. Collecter les fichiers statiques
 echo "📁 Collecte des fichiers statiques..."
 python manage.py collectstatic --noinput
 
-# 5. Créer un superutilisateur si nécessaire
-echo "👤 Vérification du superutilisateur..."
-python manage.py shell -c "
-from django.contrib.auth.models import User
-if not User.objects.filter(is_superuser=True).exists():
-    User.objects.create_superuser('admin', 'admin@example.com', 'changeme123')
-    print('Superutilisateur créé: admin/changeme123')
-else:
-    print('Superutilisateur existe déjà')
-"
+# 5. Le superutilisateur est créé par le script unifié
 
 # 6. Vérifier la configuration
 echo "✅ Vérification de la configuration..."

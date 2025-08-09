@@ -13,15 +13,9 @@ DEBUG = True
 ALLOWED_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0']
 
 
-# Database
-# https://docs.djangoproject.com/en/5.2/ref/settings/#databases
-
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db_test_2.sqlite3',
-    }
-}
+# Database configuration héritée de base.py
+# Pour utiliser une base différente en développement, définissez DB_NAME dans l'environnement
+# Par défaut: trading_app.sqlite3
 
 # Email settings for development
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'

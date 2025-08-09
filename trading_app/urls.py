@@ -15,10 +15,14 @@ urlpatterns = [
     path('brokers/<int:broker_id>/order/', views.place_broker_order, name='place_broker_order'),
     
     path('trades/tabulator/', views.trade_tabulator, name='trade_tabulator'),
+    path('trades/tabulator/synch/', views.trade_tabulator_with_synch, name='trade_tabulator_with_synch'),
     path('trades/binance/', views.binance_trades_ajax, name='binance_trades_ajax'),
     path('trades/delete-all/', views.delete_all_trades, name='delete_all_trades'),
     path('trades/update-all/', views.update_all_trades, name='update_all_trades'),
     path('trades/chart-data/<str:asset_symbol>/', views.get_asset_price_for_chart, name='get_asset_price_for_chart'),
+    path('pending-orders/tabulator/', views.pending_orders_tabulator, name='pending_orders_tabulator'),
+    path('sync-pending-orders/<int:broker_id>/', views.sync_pending_orders, name='sync_pending_orders'),
+    path('cancel-order/<str:order_id>/', views.cancel_order, name='cancel_order'),
     
     path('positions/tabulator/', views.position_tabulator, name='position_tabulator'),
     path('positions/binance/', views.binance_positions_ajax, name='binance_positions_ajax'),
@@ -58,4 +62,5 @@ urlpatterns = [
     path('asset-tradable/update-all-saxo/', views.update_all_saxo_assets, name='update_all_saxo_assets'),
     path('asset-tradable/update-saxo-page/', views.update_saxo_assets_page, name='update_saxo_assets_page'),
     path('kenza/', views.kenza, name='kenza'),
+    path('test/', views.test_page, name='test_page'),
 ]

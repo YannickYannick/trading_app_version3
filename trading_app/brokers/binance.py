@@ -598,32 +598,81 @@ class BinanceBroker(BrokerBase):
             return False
     
     def get_order_status(self, order_id: str, symbol: str) -> Dict[str, Any]:
-        """Récupérer le statut d'un ordre"""
+        """Récupérer le statut d'un ordre spécifique"""
         if not self.is_authenticated():
             return {"error": "Non authentifié"}
             
         try:
-            endpoint = "/api/v3/order"
-            timestamp = self._get_server_time()
-            
             params = {
-                "symbol": symbol,
-                "orderId": order_id,
-                "timestamp": timestamp,
-                "recvWindow": 5000
+                'symbol': symbol,
+                'orderId': order_id,
+                'timestamp': self._get_server_time()
             }
             
-            signed_params = self._sign_payload(params)
-            url = f"{self.base_url}{endpoint}"
-            response = requests.get(url, headers=self._get_headers(), params=signed_params)
+            params = self._sign_payload(params)
+            response = self._make_request('GET', '/api/v3/order', params, signed=True)
             
-            if response.status_code == 200:
-                return response.json()
+            if response.get('status') == 'FILLED':
+                return {
+                    'status': 'FILLED',
+                    'executed_qty': response.get('executedQty'),
+                    'price': response.get('price'),
+                    'side': response.get('side'),
+                    'type': response.get('type'),
+                    'time': response.get('time')
+                }
             else:
-                return {"error": f"Erreur {response.status_code}: {response.text}"}
+                return {
+                    'status': response.get('status'),
+                    'executed_qty': response.get('executedQty'),
+                    'price': response.get('price'),
+                    'side': response.get('side'),
+                    'type': response.get('type'),
+                    'time': response.get('time')
+                }
                 
         except Exception as e:
-            return {"error": f"Erreur statut ordre Binance: {e}"} 
+            return {"error": f"Erreur: {e}"}
+
+    def get_pending_orders(self) -> List[Dict[str, Any]]:
+        """Récupérer les ordres en cours depuis Binance"""
+        if not self.is_authenticated():
+            return []
+        
+        try:
+            params = {
+                'timestamp': self._get_server_time()
+            }
+            
+            params = self._sign_payload(params)
+            response = self._make_request('GET', '/api/v3/openOrders', params, signed=True)
+            
+            formatted_orders = []
+            for order in response:
+                formatted_order = {
+                    'order_id': str(order.get('orderId')),
+                    'symbol': order.get('symbol', ''),
+                    'asset_type': 'SPOT',  # Binance spot par défaut
+                    'order_type': order.get('type', ''),
+                    'side': order.get('side', ''),
+                    'status': order.get('status', ''),
+                    'price': order.get('price'),
+                    'stop_price': order.get('stopPrice'),
+                    'original_quantity': order.get('origQty'),
+                    'executed_quantity': order.get('executedQty'),
+                    'remaining_quantity': order.get('origQty'),  # Pour les ordres ouverts, remaining = original
+                    'account_id': 'BINANCE_SPOT',  # Pas d'account_id spécifique pour Binance spot
+                    'created_at': order.get('time'),
+                    'expires_at': None,  # Binance n'a pas d'expiration par défaut
+                    'broker_data': order  # Données brutes du broker
+                }
+                formatted_orders.append(formatted_order)
+            
+            return formatted_orders
+            
+        except Exception as e:
+            print(f"Erreur récupération ordres en cours Binance: {e}")
+            return []
 
     def _convert_timestamp(self, timestamp_ms: int) -> str:
         """Convertit un timestamp millisecondes en string datetime"""

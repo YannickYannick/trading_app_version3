@@ -1,0 +1,46 @@
+{% extends 'bachata_app/base.html' %}
+{% block title %}{{ instructor.user.get_full_name }} - Bachata App{% endblock %}
+{% block content %}
+<div class="container">
+  <div class="hero-section">
+    <h1>{{ instructor.user.get_full_name }}</h1>
+    <p>Expérience: {{ instructor.experience_years }} ans</p>
+  </div>
+  <div class="row g-4">
+    <div class="col-md-8">
+      <div class="card">
+        <div class="card-header"><strong>Bio</strong></div>
+        <div class="card-body">{{ instructor.bio }}</div>
+      </div>
+      <div class="card mt-4">
+        <div class="card-header"><strong>Avis récents</strong></div>
+        <div class="card-body">
+          {% for r in reviews %}
+            <div class="mb-3">
+              <div class="fw-semibold">{{ r.course.title }} - {{ r.rating }}/5</div>
+              <div>{{ r.comment }}</div>
+            </div>
+          {% empty %}
+            <div class="text-muted">Aucun avis.</div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="card">
+        <div class="card-header"><strong>Cours</strong></div>
+        <div class="card-body">
+          {% for c in courses %}
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <a href="{% url 'bachata_app:course_detail' c.id %}">{{ c.title }}</a>
+              <span class="badge badge-primary">{{ c.get_level_display }}</span>
+            </div>
+          {% empty %}
+            <div class="text-muted">Aucun cours.</div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

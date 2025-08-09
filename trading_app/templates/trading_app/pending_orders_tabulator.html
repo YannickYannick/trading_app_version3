@@ -1,0 +1,438 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Ordres en cours{% endblock %}
+
+{% block extra_css %}
+<style>
+    .order-status {
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: bold;
+        text-transform: uppercase;
+    }
+    .status-pending { background-color: #fff3cd; color: #856404; }
+    .status-working { background-color: #d1ecf1; color: #0c5460; }
+    .status-partially_filled { background-color: #d4edda; color: #155724; }
+    .status-filled { background-color: #c3e6cb; color: #155724; }
+    .status-cancelled { background-color: #f8d7da; color: #721c24; }
+    .status-rejected { background-color: #f5c6cb; color: #721c24; }
+    
+    .side-buy { color: #28a745; font-weight: bold; }
+    .side-sell { color: #dc3545; font-weight: bold; }
+    
+    .sync-buttons {
+        margin-bottom: 20px;
+    }
+    .sync-button {
+        margin-right: 10px;
+        margin-bottom: 10px;
+    }
+    
+    .table-responsive {
+        margin-top: 20px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">
+                        <i class="fas fa-clock"></i> Ordres en cours
+                    </h3>
+                    <div class="card-tools">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="refreshBtn">
+                            <i class="fas fa-sync-alt"></i> Actualiser
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <!-- Boutons de synchronisation -->
+                    <div class="sync-buttons">
+                        <h6>Synchroniser depuis les brokers :</h6>
+                        {% for broker in user_brokers %}
+                            <button class="btn btn-sm btn-primary sync-button" data-broker-id="{{ broker.id }}">
+                                <i class="fas fa-sync"></i> {{ broker.name }} ({{ broker.broker_type|title }})
+                            </button>
+                        {% empty %}
+                            <p class="text-muted">Aucun broker configuré</p>
+                        {% endfor %}
+                    </div>
+                    
+                    <!-- Tableau des ordres en cours -->
+                    <div class="table-responsive">
+                        <table class="table table-striped table-hover">
+                            <thead class="thead-dark">
+                                <tr>
+                                    <th>ID Ordre</th>
+                                    <th>Symbole</th>
+                                    <th>Broker</th>
+                                    <th>Type</th>
+                                    <th>Côté</th>
+                                    <th>Statut</th>
+                                    <th>Quantité</th>
+                                    <th>Prix</th>
+                                    <th>Remplissage</th>
+                                    <th>Créé le</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for order in orders_data %}
+                                <tr>
+                                    <td><code>{{ order.order_id }}</code></td>
+                                    <td>
+                                        <strong>{{ order.symbol }}</strong><br>
+                                        <small>{{ order.name }}</small>
+                                    </td>
+                                    <td>
+                                        {{ order.broker }}<br>
+                                        <small>{{ order.platform }}</small>
+                                    </td>
+                                    <td>{{ order.order_type }}</td>
+                                    <td>
+                                        <span class="{% if order.side == 'BUY' %}side-buy{% else %}side-sell{% endif %}">
+                                            {{ order.side }}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="order-status status-{{ order.status|lower|cut:'_' }}">
+                                            {{ order.status }}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        {{ order.remaining_quantity|floatformat:2 }}<br>
+                                        <small>sur {{ order.original_quantity|floatformat:2 }}</small>
+                                    </td>
+                                    <td>
+                                        {% if order.price %}
+                                            Limite: {{ order.price|floatformat:5 }}<br>
+                                        {% endif %}
+                                        {% if order.stop_price %}
+                                            <small>Stop: {{ order.stop_price|floatformat:5 }}</small>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <div class="progress" style="height: 8px;">
+                                            <div class="progress-bar" style="width: {{ order.fill_percentage }}%"></div>
+                                        </div>
+                                        <small>{{ order.fill_percentage|floatformat:1 }}%</small>
+                                    </td>
+                                    <td>{{ order.created_at }}</td>
+                                    <td>
+                                        <button class="btn btn-sm btn-outline-info show-details-btn" data-order-id="{{ order.order_id }}">
+                                            <i class="fas fa-eye"></i>
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-danger cancel-order-btn" data-order-id="{{ order.order_id }}">
+                                            <i class="fas fa-times"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="11" class="text-center text-muted">
+                                        <i class="fas fa-inbox"></i> Aucun ordre en cours
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal pour les détails d'ordre -->
+<div class="modal fade" id="orderDetailsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Détails de l'ordre</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body" id="orderDetailsContent">
+                <!-- Contenu dynamique -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Fermer</button>
+                <button type="button" class="btn btn-danger" id="cancelOrderBtn" style="display: none;">
+                    <i class="fas fa-times"></i> Annuler l'ordre
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Données des ordres en cours
+const ordersData = {{ orders_data|safe }};
+
+console.log('🔍 Page des ordres en cours chargée');
+console.log('📊 Données:', ordersData);
+
+// Fonction utilitaire pour récupérer les cookies
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+
+// Fonction pour afficher les alertes
+function showAlert(type, message) {
+    console.log('📢 Alerte:', type, message);
+    const alertClass = type === 'success' ? 'alert-success' : 'alert-danger';
+    const alertHtml = `
+        <div class="alert ${alertClass} alert-dismissible fade show" role="alert">
+            ${message}
+            <button type="button" class="close" data-dismiss="alert">
+                <span>&times;</span>
+            </button>
+        </div>
+    `;
+    
+    // Insérer l'alerte en haut de la page
+    const container = document.querySelector('.container-fluid');
+    if (container) {
+        container.insertAdjacentHTML('afterbegin', alertHtml);
+    }
+    
+    // Auto-supprimer après 5 secondes
+    setTimeout(() => {
+        const alert = document.querySelector('.alert');
+        if (alert) {
+            alert.remove();
+        }
+    }, 5000);
+}
+
+// Fonction pour synchroniser les ordres depuis un broker
+function syncOrdersFromBroker(brokerId, event = null) {
+    console.log('🔄 Synchronisation depuis broker:', brokerId);
+    
+    // Notification "bouton clicked"
+    showAlert('success', 'bouton clicked');
+    
+    const button = event ? event.target : null;
+    const originalText = button ? button.innerHTML : '';
+    
+    if (button) {
+        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Synchronisation...';
+        button.disabled = true;
+    }
+    
+            fetch(`/sync-pending-orders/${brokerId}/`, {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': getCookie('csrftoken'),
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => {
+        console.log('📡 Réponse reçue:', response.status);
+        return response.json();
+    })
+    .then(data => {
+        console.log('📊 Données reçues:', data);
+        if (data.success) {
+            showAlert('success', data.message);
+            location.reload();
+        } else {
+            showAlert('error', data.message);
+        }
+    })
+    .catch(error => {
+        console.error('❌ Erreur:', error);
+        showAlert('error', 'Erreur lors de la synchronisation');
+    })
+    .finally(() => {
+        if (button) {
+            button.innerHTML = originalText;
+            button.disabled = false;
+        }
+    });
+}
+
+// Fonction pour afficher les détails d'un ordre
+function showOrderDetails(orderId) {
+    console.log('👁️ Affichage détails ordre:', orderId);
+    const order = ordersData.find(o => o.order_id === orderId);
+    if (!order) {
+        console.error('❌ Ordre non trouvé:', orderId);
+        return;
+    }
+    
+    const content = `
+        <div class="row">
+            <div class="col-md-6">
+                <h6>Informations générales</h6>
+                <table class="table table-sm">
+                    <tr><td>ID Ordre:</td><td><code>${order.order_id}</code></td></tr>
+                    <tr><td>Symbole:</td><td><strong>${order.symbol}</strong> - ${order.name}</td></tr>
+                    <tr><td>Broker:</td><td>${order.broker} (${order.platform})</td></tr>
+                    <tr><td>Type:</td><td>${order.order_type}</td></tr>
+                    <tr><td>Côté:</td><td><span class="${order.side === 'BUY' ? 'side-buy' : 'side-sell'}">${order.side}</span></td></tr>
+                    <tr><td>Statut:</td><td><span class="order-status status-${order.status.toLowerCase().replace('_', '-')}">${order.status}</span></td></tr>
+                </table>
+            </div>
+            <div class="col-md-6">
+                <h6>Détails de l'ordre</h6>
+                <table class="table table-sm">
+                    <tr><td>Quantité originale:</td><td>${order.original_quantity.toFixed(2)}</td></tr>
+                    <tr><td>Quantité exécutée:</td><td>${order.executed_quantity.toFixed(2)}</td></tr>
+                    <tr><td>Quantité restante:</td><td><strong>${order.remaining_quantity.toFixed(2)}</strong></td></tr>
+                    <tr><td>Prix limite:</td><td>${order.price ? order.price.toFixed(5) : '-'}</td></tr>
+                    <tr><td>Prix stop:</td><td>${order.stop_price ? order.stop_price.toFixed(5) : '-'}</td></tr>
+                    <tr><td>Remplissage:</td><td>${order.fill_percentage.toFixed(1)}%</td></tr>
+                </table>
+            </div>
+        </div>
+        <div class="row mt-3">
+            <div class="col-12">
+                <h6>Horodatage</h6>
+                <table class="table table-sm">
+                    <tr><td>Créé le:</td><td>${new Date(order.created_at).toLocaleString('fr-FR')}</td></tr>
+                    ${order.expires_at ? `<tr><td>Expire le:</td><td>${new Date(order.expires_at).toLocaleString('fr-FR')}</td></tr>` : ''}
+                </table>
+            </div>
+        </div>
+    `;
+    
+    const detailsContent = document.getElementById('orderDetailsContent');
+    if (detailsContent) {
+        detailsContent.innerHTML = content;
+    }
+    
+    // Afficher le bouton d'annulation si l'ordre est actif
+    const cancelBtn = document.getElementById('cancelOrderBtn');
+    if (cancelBtn) {
+        if (order.status === 'PENDING' || order.status === 'WORKING' || order.status === 'PARTIALLY_FILLED') {
+            cancelBtn.style.display = 'block';
+            cancelBtn.onclick = () => cancelOrder(order.order_id);
+        } else {
+            cancelBtn.style.display = 'none';
+        }
+    }
+    
+    // Ouvrir la modal
+    $('#orderDetailsModal').modal('show');
+}
+
+// Fonction pour annuler un ordre
+function cancelOrder(orderId) {
+    console.log('❌ Annulation ordre:', orderId);
+    if (!confirm('Êtes-vous sûr de vouloir annuler cet ordre ?')) {
+        return;
+    }
+    
+            fetch(`/cancel-order/${orderId}/`, {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': getCookie('csrftoken'),
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showAlert('success', 'Ordre annulé avec succès');
+            location.reload();
+            $('#orderDetailsModal').modal('hide');
+        } else {
+            showAlert('error', data.message);
+        }
+    })
+    .catch(error => {
+        showAlert('error', 'Erreur lors de l\'annulation');
+        console.error('Error:', error);
+    });
+}
+
+// Attendre que le DOM soit chargé
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('✅ DOM chargé, attachement des événements');
+    
+    // Bouton d'actualisation
+    const refreshBtn = document.getElementById('refreshBtn');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', function() {
+            console.log('🔄 Actualisation de la page');
+            location.reload();
+        });
+    }
+    
+    // Boutons de synchronisation
+    const syncButtons = document.querySelectorAll('.sync-button');
+    console.log('🔍 Boutons de sync trouvés:', syncButtons.length);
+    syncButtons.forEach((button, index) => {
+        console.log(`🔍 Bouton ${index}:`, button.textContent.trim(), 'data-broker-id:', button.dataset.brokerId);
+        button.addEventListener('click', function(event) {
+            const brokerId = this.dataset.brokerId;
+            console.log('🖱️ Clic sur bouton sync, brokerId:', brokerId);
+            syncOrdersFromBroker(brokerId, event);
+        });
+    });
+    
+    // Boutons de détails
+    const showDetailsButtons = document.querySelectorAll('.show-details-btn');
+    showDetailsButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            const orderId = this.dataset.orderId;
+            console.log('🖱️ Clic sur bouton détails, orderId:', orderId);
+            showOrderDetails(orderId);
+        });
+    });
+    
+    // Boutons d'annulation
+    const cancelButtons = document.querySelectorAll('.cancel-order-btn');
+    cancelButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            const orderId = this.dataset.orderId;
+            console.log('🖱️ Clic sur bouton annulation, orderId:', orderId);
+            cancelOrder(orderId);
+        });
+    });
+    
+    console.log('✅ Tous les événements attachés');
+    console.log('📊 Boutons trouvés:', {
+        refresh: refreshBtn ? 1 : 0,
+        sync: syncButtons.length,
+        details: showDetailsButtons.length,
+        cancel: cancelButtons.length
+    });
+});
+
+// Rendre les fonctions globales pour compatibilité avec onclick
+window.syncOrdersFromBroker = syncOrdersFromBroker;
+window.showOrderDetails = showOrderDetails;
+window.cancelOrder = cancelOrder;
+window.showAlert = showAlert;
+window.getCookie = getCookie;
+
+console.log('✅ Script initialisé');
+console.log('🌍 Fonctions rendues globales:', {
+    syncOrdersFromBroker: typeof window.syncOrdersFromBroker,
+    showOrderDetails: typeof window.showOrderDetails,
+    cancelOrder: typeof window.cancelOrder
+});
+</script>
+{% endblock %} 

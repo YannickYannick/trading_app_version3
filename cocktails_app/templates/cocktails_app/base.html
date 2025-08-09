@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Cocktails - Boutique{% endblock %}</title>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;800&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #f59e0b;
+      --primary-2: #ef4444;
+      --bg: #0f172a;
+      --card: rgba(17,24,39,0.6);
+      --text: #ffffff;
+      --muted: #94a3b8;
+      --border: rgba(255,255,255,0.08);
+      --accent: #fbbf24;
+    }
+    html, body { height: 100%; }
+    body { background: radial-gradient(1200px 600px at 10% -10%, rgba(245, 158, 11, 0.15), transparent), radial-gradient(1000px 400px at 90% 0%, rgba(239, 68, 68, 0.12), transparent), var(--bg); color: var(--text); font-family: 'Poppins', system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    .navbar { background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(8px); border-bottom: 1px solid rgba(255,255,255,0.08); }
+    .navbar .nav-link, .navbar-brand { color: #ffffff !important; }
+    .hero { background: linear-gradient(135deg, rgba(245, 158, 11, 0.18), rgba(239, 68, 68, 0.14)); color: #fff; border-radius: 16px; padding: 32px; margin: 16px 0; border: 1px solid var(--border); position: relative; overflow: hidden; }
+    .hero::after { content: ""; position: absolute; inset: 0; background: radial-gradient(600px 200px at 10% 10%, rgba(255,255,255,0.12), transparent); pointer-events: none; }
+    .card { border: 1px solid var(--border); background: var(--card); border-radius: 14px; box-shadow: 0 10px 30px rgba(0,0,0,0.25); overflow: hidden; transition: transform .2s ease, box-shadow .2s ease; }
+    .card:hover { transform: translateY(-4px); box-shadow: 0 16px 40px rgba(0,0,0,0.35); }
+    .card-img-top { aspect-ratio: 4 / 3; object-fit: cover; }
+    .price { font-weight: 800; color: var(--accent); }
+    .btn-primary { background: linear-gradient(135deg, var(--primary), var(--primary-2)); border: none; }
+    .btn-primary:hover { filter: brightness(1.05); }
+    .btn-outline-primary { color: var(--accent); border-color: var(--accent); }
+    .form-select, .form-control { background: rgba(17,24,39,0.4); color: var(--text); border-color: rgba(255,255,255,0.12); }
+    .form-control::placeholder { color: rgba(255,255,255,0.6); }
+    .form-select option { color: #f8fafc; }
+    .badge-soft { border: 1px solid rgba(255,255,255,0.15); }
+    .w-160 { width: 160px; }
+
+    /* Animations */
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    .fade-in { opacity: 0; animation: fadeUp .45s ease-out forwards; }
+    .delay-0 { animation-delay: .00s; }
+    .delay-1 { animation-delay: .05s; }
+    .delay-2 { animation-delay: .10s; }
+    .delay-3 { animation-delay: .15s; }
+    .delay-4 { animation-delay: .20s; }
+    .delay-5 { animation-delay: .25s; }
+    .delay-6 { animation-delay: .30s; }
+    .delay-7 { animation-delay: .35s; }
+    .delay-8 { animation-delay: .40s; }
+    .delay-9 { animation-delay: .45s; }
+    .delay-10 { animation-delay: .50s; }
+    .delay-11 { animation-delay: .55s; }
+
+    /* Force contraste clair sur fond sombre */
+    .text-muted { color: rgba(255,255,255,0.75) !important; }
+    a, .nav-link { color: var(--text); }
+    .list-group-item { background-color: var(--card); color: var(--text); border-color: var(--border); }
+    .list-group-item:hover { background-color: rgba(17,24,39,0.75); }
+    .list-group-item .price { color: var(--accent); }
+    .text-bright { color: #ffffff !important; }
+  </style>
+  {% block extra_css %}{% endblock %}
+  <!-- React (CDN) -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+<nav class="navbar navbar-expand-lg">
+  <div class="container">
+    <a class="navbar-brand" href="{% url 'cocktails_app:home' %}"><i class="fa-solid fa-martini-glass-citrus"></i> Cocktails</a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#nav">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div id="nav" class="collapse navbar-collapse">
+      <ul class="navbar-nav me-auto">
+        <li class="nav-item"><a class="nav-link" href="{% url 'cocktails_app:home' %}">Accueil</a></li>
+      </ul>
+      <a class="btn btn-light" href="{% url 'cocktails_app:view_cart' %}"><i class="fa fa-shopping-cart"></i> Panier</a>
+    </div>
+  </div>
+</nav>
+<div class="container my-4">
+  {% if messages %}
+    {% for message in messages %}
+      <div class="alert alert-{{ message.tags }}">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+  {% block content %}{% endblock %}
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+{% block extra_js %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,46 @@
+{% extends 'cocktails_v2_app/base.html' %}
+{% block title %}{{ product.name }}{% endblock %}
+{% block content %}
+<div class="row g-4">
+  <div class="col-md-6">
+    <div class="card">
+      {% if product.image %}<img class="card-img-top" src="{{ product.image.url }}" alt="{{ product.name }}">{% endif %}
+      <div class="card-body">
+        <h2 class="h4">{{ product.name }}</h2>
+        <div class="price h5 mb-3">à partir de {{ product.base_price }} €</div>
+        <p>{{ product.description }}</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card p-3">
+      <form method="post" action="{% url 'cocktails_v2_app:add_to_cart' %}">{% csrf_token %}
+        <input type="hidden" name="product_id" value="{{ product.id }}">
+        <div class="mb-3">
+          <label class="form-label">Taille / Variante</label>
+          <select class="form-select" name="variant_id">
+            {% for v in variants %}
+              <option value="{{ v.id }}">{{ v.name }} - {{ v.price }} €</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% for g in groups %}
+          <div class="mb-3">
+            <label class="form-label">{{ g.name }}{% if g.required %} *{% endif %}</label>
+            {% for opt in g.options.all %}
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="options" value="{{ opt.id }}" id="opt{{ opt.id }}">
+                <label class="form-check-label" for="opt{{ opt.id }}">{{ opt.name }} {% if opt.price_delta and opt.price_delta != 0 %}(+{{ opt.price_delta }} €){% endif %}</label>
+              </div>
+            {% endfor %}
+          </div>
+        {% endfor %}
+        <div class="input-group" style="max-width:200px;">
+          <input class="form-control" type="number" name="quantity" min="1" value="1">
+          <button class="btn btn-primary" type="submit">Ajouter</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

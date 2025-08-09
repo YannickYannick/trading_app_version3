@@ -1,0 +1,43 @@
+{% extends 'bachata_app/base.html' %}
+{% block title %}Mon profil - Bachata App{% endblock %}
+{% block content %}
+<div class="container">
+  <div class="hero-section"><h1>Mon profil de danse</h1></div>
+  <form method="post" class="card p-4">
+    {% csrf_token %}
+    <div class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label">Niveau</label>
+        <select class="form-select" name="level">
+          <option value="beginner" {% if dance_profile and dance_profile.level == 'beginner' %}selected{% endif %}>Débutant</option>
+          <option value="intermediate" {% if dance_profile and dance_profile.level == 'intermediate' %}selected{% endif %}>Intermédiaire</option>
+          <option value="advanced" {% if dance_profile and dance_profile.level == 'advanced' %}selected{% endif %}>Avancé</option>
+        </select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Recherche</label>
+        <select class="form-select" name="looking_for">
+          <option value="leader" {% if dance_profile and dance_profile.looking_for == 'leader' %}selected{% endif %}>Leader</option>
+          <option value="follower" {% if dance_profile and dance_profile.looking_for == 'follower' %}selected{% endif %}>Follower</option>
+          <option value="both" {% if not dance_profile or dance_profile.looking_for == 'both' %}selected{% endif %}>Les deux</option>
+        </select>
+      </div>
+      <div class="col-md-12">
+        <label class="form-label">Styles de danse</label>
+        <select class="form-select" name="dance_styles" multiple>
+          {% for s in dance_styles %}
+            <option value="{{ s.id }}" {% if dance_profile and s in dance_profile.dance_styles.all %}selected{% endif %}>{{ s.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-12">
+        <label class="form-label">Bio</label>
+        <textarea class="form-control" name="bio" rows="4">{% if dance_profile %}{{ dance_profile.bio }}{% endif %}</textarea>
+      </div>
+      <div class="col-md-12">
+        <button class="btn btn-primary" type="submit">Enregistrer</button>
+      </div>
+    </div>
+  </form>
+</div>
+{% endblock %}

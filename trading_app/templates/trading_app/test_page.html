@@ -1,0 +1,412 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Page de Test{% endblock %}
+
+{% block extra_css %}
+<style>
+    .test-container {
+        padding: 20px;
+    }
+    .sync-buttons {
+        margin-bottom: 20px;
+        text-align: center;
+    }
+    .sync-button {
+        margin-right: 10px;
+        margin-bottom: 10px;
+    }
+    .orders-table {
+        margin-bottom: 30px;
+    }
+    .log-area {
+        margin-top: 20px;
+        padding: 20px;
+        background-color: #f8f9fa;
+        border-radius: 8px;
+        border: 1px solid #dee2e6;
+        text-align: left;
+        max-height: 300px;
+        overflow-y: auto;
+    }
+    .log-entry {
+        margin: 5px 0;
+        padding: 5px;
+        border-radius: 4px;
+        font-family: monospace;
+        font-size: 12px;
+    }
+    .log-info {
+        background-color: #d1ecf1;
+        color: #0c5460;
+    }
+    .log-success {
+        background-color: #d4edda;
+        color: #155724;
+    }
+    .log-error {
+        background-color: #f8d7da;
+        color: #721c24;
+    }
+    .order-status {
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: bold;
+        text-transform: uppercase;
+    }
+    .status-pending { background-color: #fff3cd; color: #856404; }
+    .status-working { background-color: #d1ecf1; color: #0c5460; }
+    .status-partially_filled { background-color: #d4edda; color: #155724; }
+    .status-filled { background-color: #c3e6cb; color: #155724; }
+    .status-cancelled { background-color: #f8d7da; color: #721c24; }
+    .status-rejected { background-color: #f5c6cb; color: #721c24; }
+    .side-buy { color: #28a745; font-weight: bold; }
+    .side-sell { color: #dc3545; font-weight: bold; }
+    .table-responsive {
+        margin-top: 20px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="test-container">
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">
+                            <i class="fas fa-flask"></i> Page de Test - Synchronisation Ordres
+                        </h3>
+                    </div>
+                    <div class="card-body">
+                        <!-- Boutons de synchronisation -->
+                        <div class="sync-buttons">
+                            <h6>Synchroniser depuis les brokers :</h6>
+                            {% for broker in user_brokers %}
+                                <button class="btn btn-sm btn-primary sync-button" data-broker-id="{{ broker.id }}">
+                                    <i class="fas fa-sync"></i> {{ broker.name }} ({{ broker.broker_type|title }})
+                                </button>
+                            {% empty %}
+                                <p class="text-muted">Aucun broker configuré</p>
+                            {% endfor %}
+                        </div>
+                        
+                        <!-- Tableau des ordres en cours -->
+                        <div class="orders-table">
+                            <h6><i class="fas fa-list"></i> Ordres en cours :</h6>
+                            <div class="table-responsive">
+                                <table class="table table-striped table-hover">
+                                    <thead class="thead-dark">
+                                        <tr>
+                                            <th>ID Ordre</th>
+                                            <th>Symbole</th>
+                                            <th>Broker</th>
+                                            <th>Type</th>
+                                            <th>Côté</th>
+                                            <th>Statut</th>
+                                            <th>Quantité</th>
+                                            <th>Prix</th>
+                                            <th>Remplissage</th>
+                                            <th>Créé le</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for order in orders_data %}
+                                        <tr>
+                                            <td><code>{{ order.order_id }}</code></td>
+                                            <td>
+                                                <strong>{{ order.symbol }}</strong><br>
+                                                <small>{{ order.name }}</small>
+                                            </td>
+                                            <td>
+                                                {{ order.broker }}<br>
+                                                <small>{{ order.platform }}</small>
+                                            </td>
+                                            <td>{{ order.order_type }}</td>
+                                            <td>
+                                                <span class="{% if order.side == 'BUY' %}side-buy{% else %}side-sell{% endif %}">
+                                                    {{ order.side }}
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <span class="order-status status-{{ order.status|lower|cut:'_' }}">
+                                                    {{ order.status }}
+                                                </span>
+                                            </td>
+                                            <td>
+                                                {{ order.remaining_quantity|floatformat:2 }}<br>
+                                                <small>sur {{ order.original_quantity|floatformat:2 }}</small>
+                                            </td>
+                                            <td>
+                                                {% if order.price %}
+                                                    Limite: {{ order.price|floatformat:5 }}<br>
+                                                {% endif %}
+                                                {% if order.stop_price %}
+                                                    <small>Stop: {{ order.stop_price|floatformat:5 }}</small>
+                                                {% endif %}
+                                                {% if not order.price and not order.stop_price %}
+                                                    -
+                                                {% endif %}
+                                            </td>
+                                            <td>
+                                                <div class="progress" style="height: 8px;">
+                                                    <div class="progress-bar" style="width: {{ order.fill_percentage }}%"></div>
+                                                </div>
+                                                <small>{{ order.fill_percentage|floatformat:1 }}%</small>
+                                            </td>
+                                            <td>{{ order.created_at }}</td>
+                                            <td>
+                                                <button class="btn btn-sm btn-outline-info show-details-btn" data-order-id="{{ order.order_id }}">
+                                                    <i class="fas fa-eye"></i>
+                                                </button>
+                                                <button class="btn btn-sm btn-outline-danger cancel-order-btn" data-order-id="{{ order.order_id }}">
+                                                    <i class="fas fa-times"></i>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                        {% empty %}
+                                        <tr>
+                                            <td colspan="11" class="text-center text-muted">
+                                                <i class="fas fa-inbox"></i> Aucun ordre en cours
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        
+                        <!-- Zone de logs -->
+                        <div class="log-area">
+                            <h6><i class="fas fa-terminal"></i> Logs en temps réel :</h6>
+                            <div id="logContainer">
+                                <div class="log-entry log-info">
+                                    <i class="fas fa-info-circle"></i> Page de test chargée - Prêt pour les tests
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Fonction pour ajouter un log
+function addLog(message, type = 'info') {
+    const logContainer = document.getElementById('logContainer');
+    const timestamp = new Date().toLocaleTimeString('fr-FR');
+    
+    let logClass = 'log-info';
+    let icon = 'info-circle';
+    
+    if (type === 'success') {
+        logClass = 'log-success';
+        icon = 'check-circle';
+    } else if (type === 'error') {
+        logClass = 'log-error';
+        icon = 'exclamation-triangle';
+    }
+    
+    const logEntry = document.createElement('div');
+    logEntry.className = `log-entry ${logClass}`;
+    logEntry.innerHTML = `
+        <i class="fas fa-${icon}"></i> 
+        [${timestamp}] ${message}
+    `;
+    
+    logContainer.appendChild(logEntry);
+    logContainer.scrollTop = logContainer.scrollHeight;
+    
+    // Afficher aussi dans la console
+    console.log(`[${timestamp}] ${message}`);
+}
+
+// Fonction pour afficher des alertes (compatibilité avec pending_orders_tabulator)
+function showAlert(type, message) {
+    addLog(message, type);
+}
+
+// Fonction pour récupérer le token CSRF
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+
+// Fonction pour synchroniser les ordres depuis un broker
+function syncOrdersFromBroker(brokerId, event = null) {
+    console.log('🔄 Synchronisation depuis broker:', brokerId);
+    
+    // Notification "bouton clicked"
+    addLog(`🔄 Début synchronisation broker ID: ${brokerId}`, 'info');
+    
+    const button = event ? event.target : null;
+    const originalText = button ? button.innerHTML : '';
+    
+    if (button) {
+        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Synchronisation...';
+        button.disabled = true;
+    }
+    
+    const url = `/sync-pending-orders/${brokerId}/`;
+    addLog(`📡 Envoi requête vers: ${url}`, 'info');
+    
+    fetch(url, {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': getCookie('csrftoken'),
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => {
+        console.log('📡 Réponse reçue:', response.status, response.statusText);
+        addLog(`📡 Réponse serveur: ${response.status} ${response.statusText}`, 'info');
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        return response.json();
+    })
+    .then(data => {
+        console.log('📊 Données reçues:', data);
+        addLog(`📊 Données reçues: ${JSON.stringify(data, null, 2)}`, 'info');
+        
+        if (data.success) {
+            addLog(`✅ Synchronisation réussie: ${data.message}`, 'success');
+            addLog(`🔄 Rechargement de la page...`, 'info');
+            // Recharger la page après synchronisation réussie
+            setTimeout(() => location.reload(), 1000);
+        } else {
+            addLog(`❌ Échec synchronisation: ${data.message}`, 'error');
+        }
+    })
+    .catch(error => {
+        console.error('❌ Erreur détaillée:', error);
+        addLog(`❌ Erreur réseau: ${error.message}`, 'error');
+        addLog(`❌ Type d'erreur: ${error.name}`, 'error');
+        
+        // Afficher plus de détails sur l'erreur
+        if (error.name === 'TypeError') {
+            addLog(`❌ Problème de connexion réseau ou CORS`, 'error');
+        } else if (error.name === 'SyntaxError') {
+            addLog(`❌ Réponse serveur malformée (JSON invalide)`, 'error');
+        }
+    })
+    .finally(() => {
+        if (button) {
+            button.innerHTML = originalText;
+            button.disabled = false;
+        }
+        addLog(`🏁 Synchronisation terminée pour broker ${brokerId}`, 'info');
+    });
+}
+
+// Fonction pour afficher les détails d'un ordre
+function showOrderDetails(orderId) {
+    addLog(`👁️ Détails ordre ${orderId}...`, 'info');
+    // Ici vous pouvez ajouter une modal avec les détails
+}
+
+// Fonction pour annuler un ordre
+function cancelOrder(orderId) {
+    if (confirm('Êtes-vous sûr de vouloir annuler cet ordre ?')) {
+        addLog(`❌ Annulation ordre ${orderId}...`, 'info');
+        
+        fetch(`/cancel-order/${orderId}/`, {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': getCookie('csrftoken'),
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                addLog('✅ Ordre annulé avec succès', 'success');
+                location.reload();
+            } else {
+                addLog(`❌ ${data.message}`, 'error');
+            }
+        })
+        .catch(error => {
+            addLog('❌ Erreur lors de l\'annulation', 'error');
+            console.error('Error:', error);
+        });
+    }
+}
+
+// Attendre que le DOM soit chargé
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('✅ Page de test chargée');
+    
+    // Boutons de synchronisation
+    const syncButtons = document.querySelectorAll('.sync-button');
+    console.log('🔍 Boutons de sync trouvés:', syncButtons.length);
+    syncButtons.forEach((button, index) => {
+        console.log(`🔍 Bouton ${index}:`, button.textContent.trim(), 'data-broker-id:', button.dataset.brokerId);
+        button.addEventListener('click', function(event) {
+            const brokerId = this.dataset.brokerId;
+            console.log('🖱️ Clic sur bouton sync, brokerId:', brokerId);
+            addLog(`🔄 Synchronisation ${this.textContent.trim()}...`, 'info');
+            syncOrdersFromBroker(brokerId, event);
+        });
+    });
+    
+    // Boutons de détails
+    const showDetailsButtons = document.querySelectorAll('.show-details-btn');
+    showDetailsButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            const orderId = this.dataset.orderId;
+            console.log('🖱️ Clic sur bouton détails, orderId:', orderId);
+            showOrderDetails(orderId);
+        });
+    });
+    
+    // Boutons d'annulation
+    const cancelButtons = document.querySelectorAll('.cancel-order-btn');
+    cancelButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            const orderId = this.dataset.orderId;
+            console.log('🖱️ Clic sur bouton annulation, orderId:', orderId);
+            cancelOrder(orderId);
+        });
+    });
+    
+    console.log('✅ Event listeners attachés');
+});
+
+// Rendre les fonctions globales pour compatibilité avec onclick
+window.syncOrdersFromBroker = syncOrdersFromBroker;
+window.showOrderDetails = showOrderDetails;
+window.cancelOrder = cancelOrder;
+window.addLog = addLog;
+window.showAlert = showAlert;
+window.getCookie = getCookie;
+
+console.log('✅ Script initialisé');
+console.log('🌍 Fonctions rendues globales:', {
+    syncOrdersFromBroker: typeof window.syncOrdersFromBroker,
+    showOrderDetails: typeof window.showOrderDetails,
+    cancelOrder: typeof window.cancelOrder,
+    addLog: typeof window.addLog
+});
+</script>
+{% endblock %} 

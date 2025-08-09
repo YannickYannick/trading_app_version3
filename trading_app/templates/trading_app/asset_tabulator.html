@@ -411,7 +411,7 @@
         var container = document.createElement("div");
         container.className = "btn-group btn-group-sm";
         
-        var rowData = cell.getRow().getData();
+            var rowData = cell.getRow().getData();
         
         // Si c'est une position, afficher des boutons différents
         if (rowData.position_id) {
@@ -442,19 +442,19 @@
             saveButton.innerHTML = '<i class="fas fa-save"></i>';
             saveButton.title = "Sauvegarder";
             saveButton.addEventListener("click", function() {
-                const csrftoken = getCookie('csrftoken');
-                $.ajax({
-                    url: '/assets/save/',
-                    type: 'POST',
-                    data: rowData,
-                    headers: {'X-CSRFToken': csrftoken },
-                    success: function(response) {
-                        alert("Enregistré !");
-                    },
-                    error: function(xhr) {
-                        alert("Erreur lors de l'enregistrement !");
-                    }
-                });
+            const csrftoken = getCookie('csrftoken');
+            $.ajax({
+                url: '/assets/save/',
+                type: 'POST',
+                data: rowData,
+                headers: {'X-CSRFToken': csrftoken },
+                success: function(response) {
+                    alert("Enregistré !");
+                },
+                error: function(xhr) {
+                    alert("Erreur lors de l'enregistrement !");
+                }
+            });
             });
             
             // Bouton Graphique pour les assets

@@ -1,0 +1,146 @@
+{% extends 'cocktails_app/base.html' %}
+{% block title %}Boutique de cocktails{% endblock %}
+{% block content %}
+<div class="hero">
+  <h1 class="h2 mb-1"><i class="fa-solid fa-martini-glass"></i> Boutique de cocktails</h1>
+  <p class="mb-0">Inspérée par <a href="https://www.notion.so/Vente-de-cocktails-ad36494d6a7e4d0c9a0708610f3edff3?source=copy_link" target="_blank">cette fiche</a></p>
+</div>
+<form class="row g-2 mb-3 align-items-end" method="get">
+  <div class="col-md-4"><input class="form-control" name="q" placeholder="Recherche" value="{{ filters.q }}"></div>
+  <div class="col-md-3">
+    <select class="form-select" name="cat">
+      <option value="">Toutes catégories</option>
+      {% for c in categories %}
+        <option value="{{ c.slug }}" {% if filters.cat == c.slug %}selected{% endif %}>{{ c.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-md-3">
+    <select class="form-select" name="alc">
+      <option value="">Alcoolisé ?</option>
+      <option value="yes" {% if filters.alc == 'yes' %}selected{% endif %}>Oui</option>
+      <option value="no" {% if filters.alc == 'no' %}selected{% endif %}>Non</option>
+    </select>
+  </div>
+  <div class="col-md-2"><input class="form-control" type="number" step="0.01" min="0" name="price_min" placeholder="Prix min" value="{{ filters.price_min }}"></div>
+  <div class="col-md-2"><input class="form-control" type="number" step="0.01" min="0" name="price_max" placeholder="Prix max" value="{{ filters.price_max }}"></div>
+  <div class="col-md-2">
+    <select class="form-select" name="stock">
+      <option value="">Disponibilité</option>
+      <option value="in" {% if filters.stock == 'in' %}selected{% endif %}>En stock</option>
+      <option value="out" {% if filters.stock == 'out' %}selected{% endif %}>Rupture</option>
+    </select>
+  </div>
+  <div class="col-md-2">
+    <select class="form-select" name="sort">
+      <option value="popularity" {% if filters.sort == 'popularity' %}selected{% endif %}>Popularité</option>
+      <option value="price" {% if filters.sort == 'price' %}selected{% endif %}>Prix</option>
+      <option value="name" {% if filters.sort == 'name' %}selected{% endif %}>Nom</option>
+    </select>
+  </div>
+  <div class="col-md-3">
+    <select class="form-select" name="alcohol">
+      <option value="">Type d'alcool</option>
+      {% for a in alcohol_types %}
+        <option value="{{ a.id }}" {% if filters.alcohol|default:'' == a.id|stringformat:'s' %}selected{% endif %}>{{ a.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-12"><button class="btn btn-primary mt-2">Filtrer</button></div>
+ </form>
+
+ <div id="react-cocktails"></div>
+
+ {% load static %}
+ {{ cocktails_data|json_script:"initial-cocktails" }}
+ {{ categories_data|json_script:"initial-categories" }}
+ {{ alcohol_types_data|json_script:"initial-alcohols" }}
+ <script type="text/babel">
+   const e = React.createElement;
+   function Badge({children}){
+     return <span className="badge rounded-pill text-bg-dark badge-soft">{children}</span>;
+   }
+
+   function Card({c}){
+     return (
+       <div className="col fade-in">
+         <div className="card h-100">
+           <img className="card-img-top" src={c.image_url_or_placeholder} alt={c.name} />
+           <div className="card-body">
+             <h5 className="card-title d-flex justify-content-between align-items-center">
+               <span>{c.name}</span>
+               <Badge>⭐ {c.popularity || 50}</Badge>
+             </h5>
+             <div className="price h5">{c.price} €</div>
+             <p className="text-bright">{c.is_alcoholic ? 'Alcoolisé' : 'Sans alcool'}</p>
+             <div className="d-flex gap-2">
+               <a className="btn btn-outline-primary" href={`/cocktails/c/${c.slug}/`}>Détails</a>
+               <form method="post" action="{% url 'cocktails_app:add_to_cart' %}">
+                 <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}" />
+                 <input type="hidden" name="cocktail_id" value={c.id} />
+                 <button className="btn btn-primary" type="submit">Ajouter</button>
+               </form>
+             </div>
+           </div>
+         </div>
+       </div>
+     );
+   }
+
+   function Grid(){
+     const initial = JSON.parse(document.getElementById('initial-cocktails').textContent);
+     const categories = JSON.parse(document.getElementById('initial-categories').textContent);
+     const alcohols = JSON.parse(document.getElementById('initial-alcohols').textContent);
+     const [data, setData] = React.useState(initial);
+     const [view, setView] = React.useState('grid');
+     const [sort, setSort] = React.useState('popularity');
+
+     const sorted = React.useMemo(() => {
+       const copy = [...data];
+       if (sort === 'price') copy.sort((a,b)=>a.price-b.price);
+       else if (sort === 'name') copy.sort((a,b)=>a.name.localeCompare(b.name));
+       else copy.sort((a,b)=>(b.popularity||0)-(a.popularity||0));
+       return copy;
+     }, [data, sort]);
+
+     return (
+       <>
+         <div className="d-flex justify-content-between align-items-center mb-3">
+           <div className="btn-group" role="group">
+             <button className={`btn btn-outline-primary ${view==='grid'?'active':''}`} onClick={()=>setView('grid')}><i className="fa fa-grid-2"></i> Grille</button>
+             <button className={`btn btn-outline-primary ${view==='list'?'active':''}`} onClick={()=>setView('list')}><i className="fa fa-list"></i> Liste</button>
+           </div>
+           <div className="d-flex gap-2 align-items-center">
+             <span className="text-muted small">Trier:</span>
+             <select className="form-select form-select-sm w-160" value={sort} onChange={e=>setSort(e.target.value)}>
+               <option value="popularity">Popularité</option>
+               <option value="price">Prix</option>
+               <option value="name">Nom</option>
+             </select>
+           </div>
+         </div>
+
+         {(!sorted || !sorted.length) ? (
+           <div className="alert alert-info">Aucun cocktail</div>
+         ) : view==='grid' ? (
+           <div className="row g-3 row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-lg-4">
+             {sorted.map((c, idx) => <div className={`delay-${idx%12}`} key={c.id}><Card c={c} /></div>)}
+           </div>
+         ) : (
+           <div className="list-group">
+             {sorted.map(c => (
+               <a key={c.id} className="list-group-item list-group-item-action d-flex justify-content-between align-items-center" href={`/cocktails/c/${c.slug}/`}>
+                 <span>{c.name}</span>
+                 <span className="price">{c.price} €</span>
+               </a>
+             ))}
+           </div>
+         )}
+       </>
+     );
+   }
+
+   const root = ReactDOM.createRoot(document.getElementById('react-cocktails'));
+   root.render(<Grid />);
+ </script>
+{% endblock %}

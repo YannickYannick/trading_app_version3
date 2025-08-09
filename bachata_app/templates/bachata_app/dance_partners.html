@@ -1,0 +1,63 @@
+{% extends 'bachata_app/base.html' %}
+{% block title %}Partenaires - Bachata App{% endblock %}
+{% block content %}
+<div class="container">
+  <div class="hero-section">
+    <h1><i class="fas fa-users"></i> Partenaires de danse</h1>
+  </div>
+
+  <form method="get" class="row g-3 mb-4">
+    <div class="col-md-3">
+      <label class="form-label">Style</label>
+      <select class="form-select" name="dance_style">
+        <option value="">Tous</option>
+        {% for s in dance_styles %}
+          <option value="{{ s.name }}" {% if filters.dance_style == s.name %}selected{% endif %}>{{ s.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">Niveau</label>
+      <select class="form-select" name="level">
+        <option value="">Tous</option>
+        <option value="beginner" {% if filters.level == 'beginner' %}selected{% endif %}>Débutant</option>
+        <option value="intermediate" {% if filters.level == 'intermediate' %}selected{% endif %}>Intermédiaire</option>
+        <option value="advanced" {% if filters.level == 'advanced' %}selected{% endif %}>Avancé</option>
+      </select>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">Recherche</label>
+      <select class="form-select" name="looking_for">
+        <option value="">Tous</option>
+        <option value="leader" {% if filters.looking_for == 'leader' %}selected{% endif %}>Leader</option>
+        <option value="follower" {% if filters.looking_for == 'follower' %}selected{% endif %}>Follower</option>
+        <option value="both" {% if filters.looking_for == 'both' %}selected{% endif %}>Les deux</option>
+      </select>
+    </div>
+    <div class="col-md-3 align-self-end">
+      <button class="btn btn-primary w-100" type="submit">Filtrer</button>
+    </div>
+  </form>
+
+  <div class="row g-4">
+    {% for p in page_obj %}
+      <div class="col-md-4">
+        <div class="card h-100">
+          <div class="card-header">{{ p.user.get_full_name|default:p.user.username }}</div>
+          <div class="card-body">
+            <div class="mb-2">Niveau: {{ p.get_level_display }}</div>
+            <div class="mb-2">Recherche: {{ p.get_looking_for_display }}</div>
+            <div>
+              {% for s in p.dance_styles.all %}
+                <span class="badge badge-primary me-1">{{ s.name }}</span>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+      </div>
+    {% empty %}
+      <div class="col-12"><div class="alert alert-info">Aucun partenaire trouvé.</div></div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

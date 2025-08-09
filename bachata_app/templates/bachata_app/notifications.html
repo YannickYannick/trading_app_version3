@@ -1,0 +1,27 @@
+{% extends 'bachata_app/base.html' %}
+{% block title %}Notifications - Bachata App{% endblock %}
+{% block content %}
+<div class="container">
+  <div class="hero-section"><h1>Notifications</h1></div>
+  <form method="post" class="card p-3">
+    {% csrf_token %}
+    <div class="list-group">
+      {% for n in page_obj %}
+        <label class="list-group-item d-flex gap-3">
+          <input class="form-check-input flex-shrink-0" type="checkbox" name="mark_read" value="{{ n.id }}">
+          <div>
+            <div class="fw-semibold">{{ n.title }}</div>
+            <div class="small text-muted">{{ n.created_at }}</div>
+            <div>{{ n.message }}</div>
+          </div>
+        </label>
+      {% empty %}
+        <div class="text-muted">Aucune notification.</div>
+      {% endfor %}
+    </div>
+    <div class="mt-3">
+      <button class="btn btn-primary" type="submit">Marquer comme lues</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

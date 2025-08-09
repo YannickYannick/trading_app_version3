@@ -1,0 +1,64 @@
+{% extends 'bachata_app/base.html' %}
+{% block title %}{{ course.title }} - Bachata App{% endblock %}
+{% block content %}
+<div class="container">
+  <div class="hero-section">
+    <h1>{{ course.title }}</h1>
+    <p>{{ course.dance_style.name }} • {{ course.get_level_display }} • {{ course.venue.name }}</p>
+  </div>
+  <div class="row g-4">
+    <div class="col-md-8">
+      <div class="card">
+        <div class="card-header"><strong>À propos du cours</strong></div>
+        <div class="card-body">
+          <p>{{ course.description }}</p>
+          <p class="mb-1"><i class="fas fa-calendar me-2"></i>Débute le {{ course.start_date }} ({{ course.day_of_week }})</p>
+          <p class="mb-1"><i class="fas fa-clock me-2"></i>{{ course.start_time }} - {{ course.end_time }}</p>
+          <p class="mb-1"><i class="fas fa-euro-sign me-2"></i>{{ course.price_per_session }} / séance</p>
+          <p class="mb-1"><i class="fas fa-users me-2"></i>Places: {{ course.max_participants }}</p>
+        </div>
+      </div>
+
+      <div class="card mt-4">
+        <div class="card-header"><strong>Avis (moyenne: {{ avg_rating|floatformat:1 }}/5)</strong></div>
+        <div class="card-body">
+          {% for r in reviews %}
+            <div class="mb-3">
+              <div class="fw-semibold">{{ r.user.get_full_name|default:r.user.username }} - {{ r.rating }}/5</div>
+              <div>{{ r.comment }}</div>
+            </div>
+          {% empty %}
+            <div class="text-muted">Pas encore d'avis.</div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="card">
+        <div class="card-header"><strong>Instructeur</strong></div>
+        <div class="card-body">
+          <div class="fw-semibold">{{ course.instructor.user.get_full_name }}</div>
+          <div class="text-muted">Expérience: {{ course.instructor.experience_years }} ans</div>
+          <a class="btn btn-secondary mt-3" href="{% url 'bachata_app:instructor_detail' course.instructor.id %}">Voir le profil</a>
+        </div>
+      </div>
+      <a class="btn btn-primary w-100 mt-3" href="{% url 'bachata_app:course_register' course.id %}"><i class="fas fa-check"></i> S'inscrire</a>
+    </div>
+  </div>
+
+  <div class="card mt-4">
+    <div class="card-header"><strong>Cours similaires</strong></div>
+    <div class="card-body">
+      <div class="row g-3">
+        {% for c in similar_courses %}
+          <div class="col-md-4">
+            <a class="text-decoration-none" href="{% url 'bachata_app:course_detail' c.id %}">{{ c.title }}</a>
+          </div>
+        {% empty %}
+          <div class="text-muted">Aucun</div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

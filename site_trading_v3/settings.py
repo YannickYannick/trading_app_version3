@@ -72,12 +72,8 @@ WSGI_APPLICATION = "site_trading_v3.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db_test_1.sqlite3',
-    }
-}
+# Database configuration déplacée vers base.py
+# Ce fichier est maintenant obsolète, utilisez les configurations dans le dossier settings/
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators

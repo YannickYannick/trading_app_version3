@@ -1,0 +1,58 @@
+{% extends 'bachata_app/base.html' %}
+{% block title %}Instructeurs - Bachata App{% endblock %}
+{% block content %}
+<div class="container">
+  <div class="hero-section">
+    <h1><i class="fas fa-user-tie"></i> Instructeurs</h1>
+  </div>
+
+  <form method="get" class="row g-3 mb-4">
+    <div class="col-md-4">
+      <label class="form-label">Style</label>
+      <select class="form-select" name="dance_style">
+        <option value="">Tous</option>
+        {% for s in dance_styles %}
+          <option value="{{ s.name }}" {% if filters.dance_style == s.name %}selected{% endif %}>{{ s.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">Expérience (années)</label>
+      <input class="form-control" type="number" name="experience" value="{{ filters.experience }}">
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">Trier par</label>
+      <select class="form-select" name="sort">
+        <option value="user__first_name" {% if filters.sort == 'user__first_name' %}selected{% endif %}>Nom</option>
+        <option value="experience" {% if filters.sort == 'experience' %}selected{% endif %}>Expérience</option>
+      </select>
+    </div>
+    <div class="col-md-3 align-self-end">
+      <button class="btn btn-primary" type="submit">Filtrer</button>
+    </div>
+  </form>
+
+  <div class="row g-4">
+    {% for i in page_obj %}
+      <div class="col-md-4">
+        <div class="card h-100">
+          <div class="card-header">{{ i.user.get_full_name }}</div>
+          <div class="card-body">
+            <div class="text-muted mb-2">Expérience: {{ i.experience_years }} ans</div>
+            <div>
+              {% for s in i.specializations.all %}
+                <span class="badge badge-primary me-1">{{ s.name }}</span>
+              {% endfor %}
+            </div>
+          </div>
+          <div class="card-footer bg-white">
+            <a class="btn btn-secondary" href="{% url 'bachata_app:instructor_detail' i.id %}">Profil</a>
+          </div>
+        </div>
+      </div>
+    {% empty %}
+      <div class="col-12"><div class="alert alert-info">Aucun instructeur.</div></div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

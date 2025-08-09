@@ -1,0 +1,49 @@
+{% extends "cocktails_app/base.html" %}
+{% block title %}Formules{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+  <h1 class="mb-4">Formules</h1>
+  <div id="react-formulas"></div>
+</div>
+
+{{ formulas|json_script:"initial-formulas" }}
+<script type="text/babel">
+  function FormulaCard({f}){
+    return (
+      <div className="col-md-6">
+        <div className="card h-100 shadow-sm">
+          <div className="card-body">
+            <h5 className="card-title">{f.title}</h5>
+            <h6 className="text-muted">{f.name}</h6>
+            {f.definition && <p className="mb-1 text-bright"><strong>Définition:</strong> {f.definition}</p>}
+            {f.quantity_text && <p className="mb-1 text-bright"><strong>Quantité:</strong> {f.quantity_text}</p>}
+            {f.cost_text && <p className="mb-1 text-bright"><strong>Coût:</strong> {f.cost_text}</p>}
+            {f.description && <p className="mb-3 text-bright"><strong>Description:</strong> {f.description}</p>}
+            <div>
+              <strong>Cocktails suggérés:</strong>
+              <ul className="mt-2">
+                {(f.formula_items || []).map((item, idx) => (
+                  <li className="text-bright" key={idx}>{item.cocktail_name}{item.servings ? ` — ${item.servings} verres` : ''}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function Grid(){
+    const data = JSON.parse(document.getElementById('initial-formulas').textContent);
+    const cards = data.map(f => (
+      <FormulaCard key={f.id} f={f} />
+    ));
+    return <div className="row g-4">{cards}</div>;
+  }
+
+  const root = ReactDOM.createRoot(document.getElementById('react-formulas'));
+  root.render(<Grid />);
+</script>
+{% endblock %}
+

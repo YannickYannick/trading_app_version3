@@ -427,3 +427,89 @@ class Trade(models.Model):
     def __str__(self):
         return f"{self.side} {self.size} {self.asset_tradable.symbol} @ {self.price}"
 
+class PendingOrder(models.Model):
+    """Modèle pour les ordres en cours"""
+    
+    # Types d'ordres
+    ORDER_TYPE_CHOICES = [
+        ('MARKET', 'Market'),
+        ('LIMIT', 'Limit'),
+        ('STOP', 'Stop'),
+        ('STOP_LIMIT', 'Stop Limit'),
+        ('OCO', 'One-Cancels-Other'),
+    ]
+    
+    # Statuts d'ordres
+    STATUS_CHOICES = [
+        ('PENDING', 'En attente'),
+        ('WORKING', 'En cours'),
+        ('PARTIALLY_FILLED', 'Partiellement exécuté'),
+        ('FILLED', 'Exécuté'),
+        ('CANCELLED', 'Annulé'),
+        ('REJECTED', 'Rejeté'),
+        ('EXPIRED', 'Expiré'),
+    ]
+    
+    # Côté de l'ordre
+    SIDE_CHOICES = [
+        ('BUY', 'Achat'),
+        ('SELL', 'Vente'),
+    ]
+    
+    # Informations de base
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    all_asset = models.ForeignKey(AllAssets, on_delete=models.CASCADE)  # Utiliser AllAssets au lieu d'AssetTradable
+    broker_credentials = models.ForeignKey(BrokerCredentials, on_delete=models.CASCADE)
+    
+    # Détails de l'ordre
+    order_id = models.CharField(max_length=100, unique=True)  # ID unique du broker
+    order_type = models.CharField(max_length=20, choices=ORDER_TYPE_CHOICES, default='MARKET')
+    side = models.CharField(max_length=4, choices=SIDE_CHOICES)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
+    
+    # Quantités et prix
+    original_quantity = models.DecimalField(max_digits=15, decimal_places=2)  # Quantité initiale
+    executed_quantity = models.DecimalField(max_digits=15, decimal_places=2, default=0)  # Quantité exécutée
+    remaining_quantity = models.DecimalField(max_digits=15, decimal_places=2)  # Quantité restante
+    price = models.DecimalField(max_digits=15, decimal_places=5, null=True, blank=True)  # Prix limite
+    stop_price = models.DecimalField(max_digits=15, decimal_places=5, null=True, blank=True)  # Prix stop
+    
+    # Métadonnées
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    expires_at = models.DateTimeField(null=True, blank=True)  # Expiration de l'ordre
+    
+    # Données spécifiques au broker (JSON)
+    broker_data = models.JSONField(default=dict)  # Données brutes du broker
+    
+    class Meta:
+        indexes = [
+            models.Index(fields=['user', 'status']),
+            models.Index(fields=['all_asset', 'status']),
+            models.Index(fields=['order_id']),
+            models.Index(fields=['created_at']),
+        ]
+    
+    def __str__(self):
+        return f"{self.side} {self.remaining_quantity} {self.all_asset.symbol} ({self.order_type}) - {self.status}"
+    
+    @property
+    def is_active(self):
+        """Vérifie si l'ordre est encore actif"""
+        return self.status in ['PENDING', 'WORKING', 'PARTIALLY_FILLED']
+    
+    @property
+    def fill_percentage(self):
+        """Pourcentage de remplissage de l'ordre"""
+        if self.original_quantity == 0:
+            return 0
+        return (self.executed_quantity / self.original_quantity) * 100
+    
+    def update_from_broker_data(self, broker_data: dict):
+        """Met à jour l'ordre avec les données du broker"""
+        self.status = broker_data.get('status', self.status)
+        self.executed_quantity = Decimal(str(broker_data.get('executed_quantity', 0)))
+        self.remaining_quantity = self.original_quantity - self.executed_quantity
+        self.broker_data = broker_data
+        self.save()
+

@@ -1,0 +1,44 @@
+{% extends 'bachata_app/base.html' %}
+{% block title %}{{ event.title }} - Bachata App{% endblock %}
+{% block content %}
+<div class="container">
+  <div class="hero-section">
+    <h1>{{ event.title }}</h1>
+    <p>{{ event.venue.name }} • {{ event.start_datetime }}</p>
+  </div>
+  <div class="row g-4">
+    <div class="col-md-8">
+      <div class="card">
+        <div class="card-header"><strong>À propos</strong></div>
+        <div class="card-body">
+          <p>{{ event.description }}</p>
+          <p class="mb-1"><i class="fas fa-calendar me-2"></i>{{ event.start_datetime }} - {{ event.end_datetime }}</p>
+          <p class="mb-1"><i class="fas fa-euro-sign me-2"></i>{{ event.price }}</p>
+        </div>
+      </div>
+
+      <div class="card mt-4">
+        <div class="card-header"><strong>Avis (moyenne: {{ avg_rating|floatformat:1 }}/5)</strong></div>
+        <div class="card-body">
+          {% for r in reviews %}
+            <div class="mb-3">
+              <div class="fw-semibold">{{ r.user.get_full_name|default:r.user.username }} - {{ r.rating }}/5</div>
+              <div>{{ r.comment }}</div>
+            </div>
+          {% empty %}
+            <div class="text-muted">Pas encore d'avis.</div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="card">
+        <div class="card-header"><strong>Actions</strong></div>
+        <div class="card-body">
+          <a class="btn btn-primary w-100" href="{% url 'bachata_app:event_register' event.id %}">S'inscrire</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

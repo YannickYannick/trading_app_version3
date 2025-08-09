@@ -1,0 +1,24 @@
+{% extends 'bachata_app/base.html' %}
+{% block title %}Mes événements - Bachata App{% endblock %}
+{% block content %}
+<div class="container">
+  <div class="hero-section"><h1>Mes événements</h1></div>
+  <div class="card">
+    <div class="card-body">
+      <div class="list-group">
+        {% for r in registrations %}
+          <a class="list-group-item list-group-item-action" href="{% url 'bachata_app:event_detail' r.event.id %}">
+            <div class="d-flex w-100 justify-content-between">
+              <h5 class="mb-1">{{ r.event.title }}</h5>
+              <small>Inscrit le {{ r.registration_date }}</small>
+            </div>
+            <p class="mb-1">{{ r.event.venue.name }} - {{ r.event.start_datetime }}</p>
+          </a>
+        {% empty %}
+          <div class="text-muted">Aucun événement inscrit.</div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

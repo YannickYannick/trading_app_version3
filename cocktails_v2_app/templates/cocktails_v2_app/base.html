@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Cocktails V2{% endblock %}</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+  <style>
+    :root { --primary:#16a085; }
+    .navbar { background: linear-gradient(135deg, var(--primary), #1abc9c); }
+    .navbar .nav-link, .navbar-brand { color:#fff !important; }
+    .hero { background: linear-gradient(135deg, #48c6ef, #6f86d6); color:#fff; border-radius:16px; padding:24px; margin:16px 0; }
+    .price { color:#16a085; font-weight:700; }
+  </style>
+</head>
+<body>
+<nav class="navbar navbar-expand-lg">
+  <div class="container">
+    <a class="navbar-brand" href="{% url 'cocktails_v2_app:home' %}"><i class="fa-solid fa-champagne-glasses"></i> Cocktails V2</a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#nav"><span class="navbar-toggler-icon"></span></button>
+    <div id="nav" class="collapse navbar-collapse">
+      <ul class="navbar-nav me-auto">
+        <li class="nav-item"><a class="nav-link" href="{% url 'cocktails_v2_app:home' %}">Accueil</a></li>
+      </ul>
+      <a class="btn btn-light" href="{% url 'cocktails_v2_app:view_cart' %}"><i class="fa fa-cart-shopping"></i> Panier</a>
+    </div>
+  </div>
+</nav>
+<div class="container my-4">
+  {% if messages %}{% for message in messages %}<div class="alert alert-{{ message.tags }}">{{ message }}</div>{% endfor %}{% endif %}
+  {% block content %}{% endblock %}
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

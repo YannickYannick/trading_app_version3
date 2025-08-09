@@ -1,0 +1,25 @@
+{% extends 'bachata_app/base.html' %}
+{% block title %}Inscription - {{ course.title }}{% endblock %}
+{% block content %}
+<div class="container">
+  <div class="hero-section">
+    <h1>Inscription: {{ course.title }}</h1>
+  </div>
+  <form method="post" class="card p-4">
+    {% csrf_token %}
+    <div class="mb-3">
+      <label class="form-label">Moyen de paiement</label>
+      <select class="form-select" name="payment_method" required>
+        <option value="card">Carte</option>
+        <option value="cash">Espèces</option>
+        <option value="transfer">Virement</option>
+      </select>
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Notes</label>
+      <textarea class="form-control" name="notes" rows="3"></textarea>
+    </div>
+    <button class="btn btn-primary" type="submit"><i class="fas fa-check"></i> Confirmer</button>
+  </form>
+</div>
+{% endblock %}

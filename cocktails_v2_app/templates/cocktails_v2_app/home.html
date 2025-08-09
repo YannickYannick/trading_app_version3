@@ -1,0 +1,40 @@
+{% extends 'cocktails_v2_app/base.html' %}
+{% block title %}Boutique Cocktails V2{% endblock %}
+{% block content %}
+<div class="hero">
+  <h1 class="h3 mb-1"><i class="fa-solid fa-champagne-glasses"></i> Cocktails V2</h1>
+  <p class="mb-0">Basée sur la page Notion: <a href="https://www.notion.so/Vente-de-cocktails-1-2494856317a78010aaa1e2a70b30998c?source=copy_link" target="_blank">spécifications</a></p>
+</div>
+<form class="row g-2 mb-3" method="get">
+  <div class="col-md-4"><input class="form-control" name="q" placeholder="Recherche" value="{{ filters.q }}"></div>
+  <div class="col-md-4">
+    <select class="form-select" name="cat">
+      <option value="">Toutes catégories</option>
+      {% for c in categories %}<option value="{{ c.slug }}" {% if filters.cat == c.slug %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="col-md-4">
+    <select class="form-select" name="tag">
+      <option value="">Tous tags</option>
+      {% for t in tags %}<option value="{{ t.slug }}" {% if filters.tag == t.slug %}selected{% endif %}>{{ t.name }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="col-12"><button class="btn btn-primary mt-2">Filtrer</button></div>
+</form>
+<div class="row g-3">
+  {% for p in products %}
+    <div class="col-md-4">
+      <div class="card h-100">
+        {% if p.image %}<img class="card-img-top" src="{{ p.image.url }}" alt="{{ p.name }}">{% endif %}
+        <div class="card-body">
+          <h5 class="card-title">{{ p.name }}</h5>
+          <div class="price h5">{{ p.base_price }} €</div>
+          <a class="btn btn-outline-primary" href="{% url 'cocktails_v2_app:product_detail' p.slug %}">Détails</a>
+        </div>
+      </div>
+    </div>
+  {% empty %}
+    <div class="col-12"><div class="alert alert-info">Aucun produit</div></div>
+  {% endfor %}
+</div>
+{% endblock %}

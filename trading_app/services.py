@@ -197,19 +197,19 @@ class BrokerService:
                                     'pnl': Decimal(str(pos_data.get('pnl', 0))),
                                 }
                             )
-                        
-                        # Pour Saxo, on ne fait pas de mise à jour car on crée toujours de nouvelles positions
-                        # Pour les autres brokers, mettre à jour si la position existe déjà
-                        if broker_credentials.broker_type != 'saxo' and not created:
-                            position.size = Decimal(str(pos_data.get('size', 0)))
-                            position.entry_price = Decimal(str(pos_data.get('entry_price', 0)))
-                            position.current_price = Decimal(str(pos_data.get('current_price', 0)))
-                            position.side = pos_data.get('side', 'BUY')
-                            position.status = pos_data.get('status', 'OPEN')
-                            position.pnl = Decimal(str(pos_data.get('pnl', 0)))
-                            position.save()
-                        
-                        positions.append(position)
+                            
+                            # Pour Saxo, on ne fait pas de mise à jour car on crée toujours de nouvelles positions
+                            # Pour les autres brokers, mettre à jour si la position existe déjà
+                            if broker_credentials.broker_type != 'saxo' and not created:
+                                position.size = Decimal(str(pos_data.get('size', 0)))
+                                position.entry_price = Decimal(str(pos_data.get('entry_price', 0)))
+                                position.current_price = Decimal(str(pos_data.get('current_price', 0)))
+                                position.side = pos_data.get('side', 'BUY')
+                                position.status = pos_data.get('status', 'OPEN')
+                                position.pnl = Decimal(str(pos_data.get('pnl', 0)))
+                                position.save()
+                            
+                            positions.append(position)
                         
                 except Exception as e:
                     print(f"❌ Erreur traitement position {pos_data}: {e}")
@@ -335,6 +335,95 @@ class BrokerService:
                 'saved_count': 0,
                 'total_trades': 0
             }
+    
+    def sync_pending_orders_from_broker(self, broker_credentials: BrokerCredentials) -> Dict[str, Any]:
+        """Synchronise les ordres en cours depuis un broker"""
+        print(f"🔄 Synchronisation des ordres en cours depuis {broker_credentials.broker_type}")
+        
+        try:
+            print(f"🔧 Création instance broker pour {broker_credentials.name}")
+            broker = self.get_broker_instance(broker_credentials)
+            if not broker:
+                print(f"❌ Impossible de créer l'instance du broker {broker_credentials.name}")
+                return {"success": False, "message": "Impossible de créer l'instance du broker"}
+            
+            print(f"✅ Instance broker créée, récupération des ordres...")
+            orders_data = broker.get_pending_orders()
+            print(f"📊 Ordres récupérés: {orders_data}")
+            
+            if not orders_data:
+                print(f"ℹ️ Aucun ordre en cours trouvé pour {broker_credentials.name}")
+                return {"success": True, "message": "Aucun ordre en cours trouvé"}
+            
+            created_count = 0
+            updated_count = 0
+            
+            print(f"🔄 Traitement de {len(orders_data)} ordres...")
+            for i, order_data in enumerate(orders_data):
+                try:
+                    print(f"  📝 Traitement ordre {i+1}/{len(orders_data)}: {order_data.get('order_id', 'N/A')}")
+                    
+                    # Créer ou récupérer l'AllAssets
+                    all_asset, created = AllAssets.objects.get_or_create(
+                        symbol=order_data['symbol'],
+                        platform=broker_credentials.broker_type,
+                        defaults={
+                            'name': order_data.get('name', order_data['symbol']),
+                            'asset_type': order_data.get('asset_type', 'Unknown'),
+                            'market': order_data.get('market', 'Unknown'),
+                            'currency': order_data.get('currency', 'USD'),
+                            'exchange': order_data.get('exchange', ''),
+                        }
+                    )
+                    
+                    # Créer ou mettre à jour l'ordre en cours
+                    pending_order, created = PendingOrder.objects.get_or_create(
+                        order_id=order_data['order_id'],
+                        defaults={
+                            'user': broker_credentials.user,
+                            'all_asset': all_asset,  # Utiliser AllAssets directement
+                            'broker_credentials': broker_credentials,
+                            'order_type': order_data['order_type'],
+                            'side': order_data['side'],
+                            'status': order_data['status'],
+                            'original_quantity': order_data['original_quantity'],
+                            'executed_quantity': order_data['executed_quantity'],
+                            'remaining_quantity': order_data['remaining_quantity'],
+                            'price': order_data.get('price'),
+                            'stop_price': order_data.get('stop_price'),
+                            'expires_at': order_data.get('expires_at'),
+                            'broker_data': order_data.get('broker_data', {}),
+                        }
+                    )
+                    
+                    if created:
+                        created_count += 1
+                        print(f"    ✅ Nouvel ordre créé: {order_data['order_id']}")
+                    else:
+                        # Mettre à jour l'ordre existant
+                        pending_order.status = order_data['status']
+                        pending_order.executed_quantity = order_data['executed_quantity']
+                        pending_order.remaining_quantity = order_data['remaining_quantity']
+                        pending_order.broker_data = order_data.get('broker_data', {})
+                        pending_order.save()
+                        updated_count += 1
+                        print(f"    🔄 Ordre mis à jour: {order_data['order_id']}")
+                        
+                except Exception as e:
+                    print(f"❌ Erreur lors du traitement de l'ordre {order_data}: {e}")
+                    continue
+            
+            result = {
+                "success": True, 
+                "message": f"Synchronisation terminée: {created_count} nouveaux ordres, {updated_count} mis à jour"
+            }
+            print(f"✅ Résultat final: {result}")
+            return result
+            
+        except Exception as e:
+            error_msg = f"Erreur lors de la synchronisation: {e}"
+            print(f"❌ {error_msg}")
+            return {"success": False, "message": error_msg}
     
     def _process_broker_trade(self, broker_trade, broker_credentials, symbol=None):
         """Process a single broker trade and return created Trade objects"""

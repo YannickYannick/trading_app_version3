@@ -1,0 +1,39 @@
+{% extends 'cocktails_app/base.html' %}
+{% block title %}Checkout{% endblock %}
+{% block content %}
+<h1 class="h4 mb-3">Validation de la commande</h1>
+<div class="row g-4">
+  <div class="col-md-6">
+    <div class="card p-3">
+      <h5>Informations client</h5>
+      <form method="post">{% csrf_token %}
+        <div class="mb-2"><input class="form-control" name="name" placeholder="Nom"></div>
+        <div class="mb-2"><input class="form-control" name="email" placeholder="Email"></div>
+        <div class="mb-2"><input class="form-control" name="phone" placeholder="Téléphone"></div>
+        <div class="mb-2"><textarea class="form-control" name="address" placeholder="Adresse de livraison"></textarea></div>
+        <div class="mb-2"><input class="form-control" name="promo" placeholder="Code promo (optionnel)"></div>
+        <button class="btn btn-primary" type="submit">Payer</button>
+      </form>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card p-3">
+      <h5>Résumé</h5>
+      <ul class="list-group mb-2">
+        {% for item in order.items.all %}
+          <li class="list-group-item d-flex justify-content-between">
+            <span>{{ item.cocktail.name }} x{{ item.quantity }}</span>
+            <span>{{ item.line_total }} €</span>
+          </li>
+        {% empty %}
+          <li class="list-group-item text-muted">Panier vide</li>
+        {% endfor %}
+      </ul>
+      <div class="d-flex justify-content-between"><span>Sous-total</span><strong>{{ order.subtotal }} €</strong></div>
+      <div class="d-flex justify-content-between"><span>Remise</span><strong>- {{ order.discount_amount }} €</strong></div>
+      <hr>
+      <div class="d-flex justify-content-between"><span>Total</span><strong>{{ order.total }} €</strong></div>
+    </div>
+  </div>
+</div>
+{% endblock %}

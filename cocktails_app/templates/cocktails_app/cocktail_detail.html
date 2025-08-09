@@ -1,0 +1,47 @@
+{% extends 'cocktails_app/base.html' %}
+{% block title %}{{ cocktail.name }}{% endblock %}
+{% block content %}
+<div class="row g-4">
+  <div class="col-md-6">
+    <div class="card">
+      {% if cocktail.image %}<img class="card-img-top" src="{{ cocktail.image.url }}" alt="{{ cocktail.name }}">{% endif %}
+      <div class="card-body">
+        <h2 class="h4">{{ cocktail.name }}</h2>
+        <div class="price h5 mb-3">{{ cocktail.price }} €</div>
+        <p>{{ cocktail.description }}</p>
+        <form method="post" action="{% url 'cocktails_app:add_to_cart' %}">{% csrf_token %}
+          <input type="hidden" name="cocktail_id" value="{{ cocktail.id }}">
+          <div class="input-group" style="max-width:200px;">
+            <input class="form-control" type="number" name="quantity" min="1" value="1">
+            <button class="btn btn-primary" type="submit">Ajouter</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-body">
+        <h5>Recette</h5>
+        <ul class="list-group">
+          {% for item in recipe %}
+            <li class="list-group-item d-flex justify-content-between">
+              <span>
+                {% if item.ingredient.buy_link %}
+                  <a href="{{ item.ingredient.buy_link }}" target="_blank">{{ item.ingredient.name }}</a>
+                {% else %}
+                  {{ item.ingredient.name }}
+                {% endif %}
+                {% if item.note %} ({{ item.note }}){% endif %}
+              </span>
+              <span>{{ item.quantity }} {{ item.unit }}</span>
+            </li>
+          {% empty %}
+            <li class="list-group-item text-muted">Aucun ingrédient</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

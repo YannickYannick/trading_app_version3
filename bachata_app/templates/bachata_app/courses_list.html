@@ -1,0 +1,88 @@
+{% extends 'bachata_app/base.html' %}
+{% block title %}Cours - Bachata App{% endblock %}
+{% block content %}
+<div class="container">
+  <div class="hero-section">
+    <h1><i class="fas fa-graduation-cap"></i> Cours</h1>
+    <p>Trouvez le cours qui vous correspond</p>
+  </div>
+
+  <form method="get" class="row g-3 mb-4">
+    <div class="col-md-3">
+      <label class="form-label">Niveau</label>
+      <select class="form-select" name="level">
+        <option value="">Tous</option>
+        <option value="beginner" {% if filters.level == 'beginner' %}selected{% endif %}>Débutant</option>
+        <option value="intermediate" {% if filters.level == 'intermediate' %}selected{% endif %}>Intermédiaire</option>
+        <option value="advanced" {% if filters.level == 'advanced' %}selected{% endif %}>Avancé</option>
+      </select>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">Style</label>
+      <select class="form-select" name="dance_style">
+        <option value="">Tous</option>
+        {% for s in dance_styles %}
+          <option value="{{ s.name }}" {% if filters.dance_style == s.name %}selected{% endif %}>{{ s.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">Instructeur</label>
+      <input class="form-control" type="text" name="instructor" value="{{ filters.instructor }}" placeholder="Nom instructeur">
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">Lieu</label>
+      <input class="form-control" type="text" name="venue" value="{{ filters.venue }}" placeholder="Nom du lieu">
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">Trier par</label>
+      <select class="form-select" name="sort">
+        <option value="start_date" {% if filters.sort == 'start_date' %}selected{% endif %}>Date</option>
+        <option value="price" {% if filters.sort == 'price' %}selected{% endif %}>Prix</option>
+        <option value="popularity" {% if filters.sort == 'popularity' %}selected{% endif %}>Popularité</option>
+      </select>
+    </div>
+    <div class="col-md-3 align-self-end">
+      <button class="btn btn-primary w-100" type="submit"><i class="fas fa-filter"></i> Filtrer</button>
+    </div>
+  </form>
+
+  <div class="row g-4">
+    {% for course in page_obj %}
+      <div class="col-md-4">
+        <div class="card h-100">
+          <div class="card-header">
+            <h5 class="mb-0">{{ course.title }}</h5>
+          </div>
+          <div class="card-body">
+            <p class="mb-2"><i class="fas fa-user-tie me-2"></i>{{ course.instructor.user.get_full_name }}</p>
+            <p class="mb-2"><i class="fas fa-map-marker-alt me-2"></i>{{ course.venue.name }}</p>
+            <p class="mb-2"><i class="fas fa-calendar me-2"></i>{{ course.day_of_week }} - dès {{ course.start_date }}</p>
+            <span class="badge badge-primary">{{ course.get_level_display }}</span>
+          </div>
+          <div class="card-footer bg-white d-flex justify-content-between">
+            <a class="btn btn-secondary" href="{% url 'bachata_app:course_detail' course.id %}"><i class="fas fa-eye"></i> Détails</a>
+            <a class="btn btn-primary" href="{% url 'bachata_app:course_register' course.id %}"><i class="fas fa-check"></i> S'inscrire</a>
+          </div>
+        </div>
+      </div>
+    {% empty %}
+      <div class="col-12">
+        <div class="alert alert-info">Aucun cours trouvé.</div>
+      </div>
+    {% endfor %}
+  </div>
+
+  <nav class="mt-4">
+    <ul class="pagination justify-content-center">
+      {% if page_obj.has_previous %}
+        <li class="page-item"><a class="page-link" href="?page={{ page_obj.previous_page_number }}">Précédent</a></li>
+      {% endif %}
+      <li class="page-item disabled"><span class="page-link">Page {{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span></li>
+      {% if page_obj.has_next %}
+        <li class="page-item"><a class="page-link" href="?page={{ page_obj.next_page_number }}">Suivant</a></li>
+      {% endif %}
+    </ul>
+  </nav>
+</div>
+{% endblock %}

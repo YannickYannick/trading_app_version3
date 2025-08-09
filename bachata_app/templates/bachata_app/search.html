@@ -1,0 +1,43 @@
+{% extends 'bachata_app/base.html' %}
+{% block title %}Recherche - Bachata App{% endblock %}
+{% block content %}
+<div class="container">
+  <div class="hero-section"><h1>Recherche: "{{ query }}"</h1></div>
+  {% if results %}
+    <div class="row g-4">
+      <div class="col-md-4">
+        <div class="card">
+          <div class="card-header"><strong>Cours</strong></div>
+          <div class="card-body">
+            {% for c in results.courses %}
+              <div><a href="{% url 'bachata_app:course_detail' c.id %}">{{ c.title }}</a></div>
+            {% empty %}<div class="text-muted">Aucun</div>{% endfor %}
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card">
+          <div class="card-header"><strong>Événements</strong></div>
+          <div class="card-body">
+            {% for e in results.events %}
+              <div><a href="{% url 'bachata_app:event_detail' e.id %}">{{ e.title }}</a></div>
+            {% empty %}<div class="text-muted">Aucun</div>{% endfor %}
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card">
+          <div class="card-header"><strong>Instructeurs</strong></div>
+          <div class="card-body">
+            {% for i in results.instructors %}
+              <div>{{ i.user.get_full_name }}</div>
+            {% empty %}<div class="text-muted">Aucun</div>{% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+  {% else %}
+    <div class="alert alert-info">Entrez un mot-clé pour rechercher.</div>
+  {% endif %}
+</div>
+{% endblock %}

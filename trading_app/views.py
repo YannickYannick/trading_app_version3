@@ -20,7 +20,7 @@ import pandas as pd
 import time
 from django.core.serializers.json import DjangoJSONEncoder
 from .brokers.factory import BrokerFactory
-from .models import Asset, Position, Trade, Strategy, StrategyExecution, BrokerCredentials, AssetType, Market, AssetTradable, AllAssets
+from .models import Asset, Position, Trade, Strategy, StrategyExecution, BrokerCredentials, AssetType, Market, AssetTradable, AllAssets, PendingOrder
 
 logger = logging.getLogger(__name__)
 
@@ -239,39 +239,27 @@ def save_asset_ajax(request):
 
 def trade_tabulator(request):
     """Vue pour afficher les trades dans un tableau Tabulator"""
-    # Charger uniquement les trades depuis la base de données
-    trades = Trade.objects.select_related('asset_tradable').all().order_by('-timestamp')[:100]  # Limite à 100 trades
+    trades = Trade.objects.filter(user=request.user).select_related('asset_tradable__all_asset')
     
-    print(f"🔍 {trades.count()} trades trouvés en base de données")
+    # Préparer les données pour Tabulator
+    trades_data = []
+    for trade in trades:
+        trades_data.append({
+            'id': trade.id,
+            'symbol': trade.asset_tradable.symbol,
+            'name': trade.asset_tradable.name,
+            'platform': trade.asset_tradable.platform,
+            'size': float(trade.size),
+            'price': float(trade.price),
+            'side': trade.side,
+            'timestamp': trade.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+            'platform': trade.platform,
+        })
     
-    # Formater les données pour Tabulator
-    tabledata = [{
-        'id': trade.id,
-        'symbol': trade.asset_tradable.symbol if trade.asset_tradable else 'N/A',
-        'direction': trade.side,
-        'size': float(trade.size),
-        'opening_price': float(trade.price),
-        'closing_price': float(trade.price),  # Même prix pour l'instant
-        'profit_loss': 0,  # À calculer si nécessaire
-        'profit_loss_ratio': 0,
-        'opening_date': trade.timestamp.strftime('%Y-%m-%d'),
-        'timestamp': trade.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
-        'broker_name': trade.platform,
-    } for trade in trades]
-
-    print(f"📊 {len(tabledata)} trades formatés pour l'affichage")
-    
-    # Récupérer les brokers Saxo configurés pour les boutons de synchronisation
-    saxo_brokers = BrokerCredentials.objects.filter(
-        user=request.user,
-        broker_type='saxo',
-        is_active=True
-    ).order_by('name')
-
     return render(request, 'trading_app/trade_tabulator.html', {
-        'data_trades': json.dumps(tabledata, cls=DjangoJSONEncoder),
-        'saxo_brokers': saxo_brokers,
+        'trades_data': trades_data
     })
+
 def trade_tabulator_with_synch(request):
     """Affiche les trades depuis les brokers"""
     from .brokers.factory import BrokerFactory
@@ -3149,3 +3137,215 @@ def get_asset_price_for_chart(request, asset_symbol):
             'error': f'Erreur lors de la récupération des données: {str(e)}'
         })
 
+@login_required
+def pending_orders_tabulator(request):
+    """Vue pour afficher les ordres en cours dans un tableau Tabulator"""
+    print("🔍 Vue pending_orders_tabulator appelée")
+    
+    pending_orders = PendingOrder.objects.filter(
+        user=request.user, 
+        status__in=['PENDING', 'WORKING', 'PARTIALLY_FILLED']
+    ).select_related('all_asset', 'broker_credentials')
+    
+    print(f"📊 {pending_orders.count()} ordres en cours trouvés")
+    
+    # Préparer les données pour Tabulator
+    orders_data = []
+    for order in pending_orders:
+        try:
+            order_data = {
+                'id': order.id,
+                'order_id': order.order_id,
+                'symbol': order.all_asset.symbol,
+                'name': order.all_asset.name,
+                'platform': order.all_asset.platform,
+                'broker': order.broker_credentials.name,
+                'order_type': order.order_type,
+                'side': order.side,
+                'status': order.status,
+                'original_quantity': float(order.original_quantity),
+                'executed_quantity': float(order.executed_quantity),
+                'remaining_quantity': float(order.remaining_quantity),
+                'price': float(order.price) if order.price else None,
+                'stop_price': float(order.stop_price) if order.stop_price else None,
+                'fill_percentage': float(order.fill_percentage),
+                'created_at': order.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+                'expires_at': order.expires_at.strftime('%Y-%m-%d %H:%M:%S') if order.expires_at else None,
+            }
+            orders_data.append(order_data)
+            print(f"✅ Ordre ajouté: {order.order_id} - {order.all_asset.symbol}")
+        except Exception as e:
+            print(f"❌ Erreur traitement ordre {order.id}: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    print(f"📋 {len(orders_data)} ordres formatés pour l'affichage")
+    print(f"📋 Données JSON: {orders_data}")
+    
+    # Récupérer les brokers configurés pour les boutons de synchronisation
+    user_brokers = BrokerCredentials.objects.filter(
+        user=request.user,
+        is_active=True
+    ).order_by('name')
+    
+    print(f"🏦 {user_brokers.count()} brokers configurés")
+    
+    return render(request, 'trading_app/pending_orders_tabulator.html', {
+        'orders_data': orders_data,
+        'user_brokers': user_brokers
+    })
+
+@login_required
+@csrf_exempt
+def sync_pending_orders(request, broker_id):
+    """Synchroniser les ordres en cours depuis un broker spécifique"""
+    logger.info(f"🔄 Début synchronisation ordres pour broker {broker_id}, utilisateur {request.user}")
+    
+    if request.method != 'POST':
+        logger.warning(f"❌ Méthode non autorisée: {request.method}")
+        return JsonResponse({'success': False, 'message': 'Méthode non autorisée'})
+    
+    try:
+        logger.info(f"🔍 Recherche broker {broker_id} pour utilisateur {request.user}")
+        broker_credentials = BrokerCredentials.objects.get(
+            id=broker_id,
+            user=request.user,
+            is_active=True
+        )
+        logger.info(f"✅ Broker trouvé: {broker_credentials.name} ({broker_credentials.broker_type})")
+        
+        # Utiliser le service pour synchroniser
+        logger.info(f"🔄 Création service BrokerService pour utilisateur {request.user}")
+        service = BrokerService(request.user)
+        
+        logger.info(f"🔄 Appel sync_pending_orders_from_broker pour {broker_credentials.name}")
+        result = service.sync_pending_orders_from_broker(broker_credentials)
+        
+        logger.info(f"📊 Résultat synchronisation: {result}")
+        return JsonResponse(result)
+        
+    except BrokerCredentials.DoesNotExist:
+        logger.error(f"❌ Broker {broker_id} non trouvé pour utilisateur {request.user}")
+        return JsonResponse({
+            'success': False, 
+            'message': 'Broker non trouvé ou non autorisé'
+        })
+    except Exception as e:
+        logger.error(f"❌ Erreur lors de la synchronisation: {str(e)}", exc_info=True)
+        return JsonResponse({
+            'success': False, 
+            'message': f'Erreur lors de la synchronisation: {str(e)}'
+        })
+
+@login_required
+@csrf_exempt
+def cancel_order(request, order_id):
+    """Annuler un ordre en cours"""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Méthode non autorisée'})
+    
+    try:
+        # Récupérer l'ordre
+        pending_order = PendingOrder.objects.get(
+            order_id=order_id,
+            user=request.user
+        )
+        
+        # Vérifier que l'ordre peut être annulé
+        if pending_order.status not in ['PENDING', 'WORKING', 'PARTIALLY_FILLED']:
+            return JsonResponse({
+                'success': False, 
+                'message': 'Cet ordre ne peut plus être annulé'
+            })
+        
+        # Créer l'instance du broker
+        service = BrokerService(request.user)
+        broker = service.get_broker_instance(pending_order.broker_credentials)
+        
+        if not broker:
+            return JsonResponse({
+                'success': False, 
+                'message': 'Impossible de créer l\'instance du broker'
+            })
+        
+        # Annuler l'ordre via le broker
+        success = broker.cancel_order(
+            order_id=pending_order.order_id,
+            symbol=pending_order.all_asset.symbol  # Utiliser all_asset au lieu d'asset_tradable
+        )
+        
+        if success:
+            # Mettre à jour le statut en base
+            pending_order.status = 'CANCELLED'
+            pending_order.save()
+            
+            return JsonResponse({
+                'success': True, 
+                'message': 'Ordre annulé avec succès'
+            })
+        else:
+            return JsonResponse({
+                'success': False, 
+                'message': 'Échec de l\'annulation de l\'ordre'
+            })
+        
+    except PendingOrder.DoesNotExist:
+        return JsonResponse({
+            'success': False, 
+            'message': 'Ordre non trouvé'
+        })
+    except Exception as e:
+        return JsonResponse({
+            'success': False, 
+            'message': f'Erreur lors de l\'annulation: {str(e)}'
+        })
+
+
+def test_page(request):
+    """Page de test avec boutons de synchronisation"""
+    # Récupérer les brokers de l'utilisateur
+    user_brokers = []
+    orders_data = []
+    
+    if request.user.is_authenticated:
+        user_brokers = BrokerCredentials.objects.filter(
+            user=request.user,
+            is_active=True
+        ).order_by('name')
+        
+        # Récupérer les ordres en cours
+        pending_orders = PendingOrder.objects.filter(
+            user=request.user
+        ).select_related('broker_credentials', 'all_asset').order_by('-created_at')
+        
+        for order in pending_orders:
+            # Calculer le pourcentage de remplissage
+            if order.original_quantity and order.original_quantity > 0:
+                fill_percentage = ((order.original_quantity - order.remaining_quantity) / order.original_quantity) * 100
+            else:
+                fill_percentage = 0.0
+            
+            orders_data.append({
+                'order_id': order.order_id,
+                'symbol': order.all_asset.symbol if order.all_asset else 'Unknown',
+                'name': order.all_asset.name if order.all_asset else 'Unknown',
+                'broker': order.broker_credentials.name,
+                'platform': order.broker_credentials.broker_type,
+                'order_type': order.order_type,
+                'side': order.side,
+                'status': order.status,
+                'original_quantity': float(order.original_quantity) if order.original_quantity else 0.0,
+                'executed_quantity': float(order.executed_quantity) if order.executed_quantity else 0.0,
+                'remaining_quantity': float(order.remaining_quantity) if order.remaining_quantity else 0.0,
+                'price': float(order.price) if order.price is not None else None,
+                'stop_price': float(order.stop_price) if order.stop_price is not None else None,
+                'fill_percentage': float(fill_percentage),
+                'created_at': order.created_at.strftime('%d/%m/%Y %H:%M') if order.created_at else '',
+                'expires_at': order.expires_at.strftime('%d/%m/%Y %H:%M') if order.expires_at else '',
+                'broker_data': order.broker_data or {}
+            })
+    
+    return render(request, 'trading_app/test_page.html', {
+        'user_brokers': user_brokers,
+        'orders_data': orders_data
+    })

@@ -522,42 +522,109 @@ class SaxoBroker(BrokerBase):
             return {"error": f"Erreur statut ordre Saxo: {e}"}
     
     def get_balance(self):
-        """Retourne le solde cash du compte Saxo"""
-        print(f"🔍 Récupération solde Saxo - Environnement: {'LIVE' if 'sim' not in self.base_url else 'SIMULATION'}")
-        print(f"🔍 Base URL: {self.base_url}")
-        
+        """Récupérer le solde du compte"""
         if not self.authenticate():
-            print("❌ Échec de l'authentification Saxo")
             return None
-        
-        print(f"✅ Authentification réussie - Token: {self.access_token[:20]}...")
-        
-        url = f"{self.base_url}/port/v1/balances/me"
-        headers = {
-            "Authorization": f"Bearer {self.access_token}",
-            "Accept": "application/json"
-        }
-        
-        print(f"🌐 Appel API: {url}")
-        print(f"📋 Headers: {headers}")
         
         try:
+            # Utiliser l'endpoint direct pour les balances
+            url = f"{self.base_url}/port/v1/balances/me"
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+                "Accept": "application/json"
+            }
+        
             response = requests.get(url, headers=headers)
-            print(f"📊 Status Code: {response.status_code}")
+            response.raise_for_status()
             
-            if response.status_code == 200:
-                data = response.json()
-                print(f"📊 Réponse: {data}")
-                cash_balance = data.get('CashBalance')
-                print(f"💰 Cash Balance: {cash_balance}")
-                return cash_balance
-            else:
-                print(f"❌ Erreur {response.status_code}: {response.text}")
-                return None
+            data = response.json()
+            
+            # Extraire les soldes selon la structure de l'API Saxo
+            cash_balance = data.get('CashBalance', {})
+            collateral_available = data.get('CollateralAvailable', {})
+            
+            # Formater les balances
+            formatted_balances = {}
+            
+            # Ajouter le cash balance
+            if isinstance(cash_balance, dict):
+                for currency, amount in cash_balance.items():
+                    formatted_balances[currency] = amount
+            elif isinstance(cash_balance, (int, float)):
+                formatted_balances['EUR'] = cash_balance
+            
+            # Ajouter le collateral si différent
+            if isinstance(collateral_available, dict):
+                for currency, amount in collateral_available.items():
+                    if currency not in formatted_balances:
+                        formatted_balances[currency] = amount
+            elif isinstance(collateral_available, (int, float)):
+                if 'EUR' not in formatted_balances:
+                    formatted_balances['EUR'] = collateral_available
+            
+            print(f"📊 Balance Saxo récupérée: {formatted_balances}")
+            print(f"💰 Cash: {cash_balance} | Collateral: {collateral_available}")
+            return formatted_balances
                 
         except Exception as e:
-            print(f"❌ Erreur récupération solde Saxo: {e}")
+            print(f"❌ Erreur récupération balance Saxo: {e}")
             return None
+
+    def get_pending_orders(self) -> List[Dict[str, Any]]:
+        """Récupérer les ordres en cours depuis Saxo"""
+        if not self.authenticate():
+            return []
+        
+        try:
+            url = f"{self.base_url}/port/v1/orders/me"
+            params = {
+                "$skip": 0,
+                "$top": 100,  # Limiter à 100 ordres
+                "FieldGroups": "DisplayAndFormat",
+                "Status": "Working"  # Seulement les ordres en cours
+            }
+            
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/json"
+            }
+            
+            print(f"🔍 Récupération ordres Saxo: {url}")
+            response = requests.get(url, headers=headers, params=params)
+            response.raise_for_status()
+            
+            data = response.json()
+            orders = data.get("Data", [])
+            
+            print(f"📊 Ordres Saxo trouvés: {len(orders)}")
+            
+            formatted_orders = []
+            for order in orders:
+                formatted_order = {
+                    'order_id': str(order.get('OrderId')),
+                    'symbol': order.get('Symbol', ''),
+                    'asset_type': order.get('AssetType', ''),
+                    'uic': order.get('Uic'),
+                    'order_type': order.get('OpenOrderType', ''),
+                    'side': order.get('BuySell', ''),
+                    'status': order.get('Status', ''),
+                    'price': order.get('Price'),
+                    'stop_price': order.get('StopPrice'),
+                    'original_quantity': order.get('Amount'),
+                    'executed_quantity': order.get('FilledAmount', 0),
+                    'remaining_quantity': order.get('Amount', 0) - order.get('FilledAmount', 0),
+                    'account_id': order.get('AccountId'),
+                    'created_at': order.get('OrderTime'),
+                    'expires_at': order.get('ExpiryTime'),
+                    'broker_data': order  # Données brutes du broker
+                }
+                formatted_orders.append(formatted_order)
+            
+            return formatted_orders
+            
+        except Exception as e:
+            print(f"Erreur récupération ordres en cours Saxo: {e}")
+            return []
     
     def _get_uic_from_symbol(self, symbol: str) -> Optional[int]:
         """Récupérer l'UIC d'un symbole"""

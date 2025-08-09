@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import AssetType, Market, AssetTradable, Asset, Position, Trade, Strategy, BrokerCredentials, AllAssets
+from .models import AssetType, Market, AssetTradable, Asset, Position, Trade, Strategy, BrokerCredentials, AllAssets, PendingOrder
 
 admin.site.register(AssetType)
 admin.site.register(Market)
@@ -9,6 +9,7 @@ admin.site.register(Position)
 admin.site.register(Trade)
 admin.site.register(Strategy)
 admin.site.register(BrokerCredentials)
+admin.site.register(PendingOrder)
 
 @admin.register(AllAssets)
 class AllAssetsAdmin(admin.ModelAdmin):
