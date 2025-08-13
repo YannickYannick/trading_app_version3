@@ -2174,7 +2174,7 @@ def place_saxo_order_with_asset(asset: Asset, broker: BrokerCredentials, amount:
                 }
         
         # Pour l'instant, on utilise un UIC par défaut (à adapter selon ta logique)
-        uic = 211  # À remplacer par la vraie logique de récupération UIC
+        uic = all_asset.saxo_uic if all_asset and all_asset.saxo_uic else None #211  # À remplacer par la vraie logique de récupération UIC
         
         # Préparer l'ordre
         order_payload = {
@@ -3143,9 +3143,8 @@ def pending_orders_tabulator(request):
     print("🔍 Vue pending_orders_tabulator appelée")
     
     pending_orders = PendingOrder.objects.filter(
-        user=request.user, 
-        status__in=['PENDING', 'WORKING', 'PARTIALLY_FILLED']
-    ).select_related('all_asset', 'broker_credentials')
+        user=request.user
+        ).select_related('asset_tradable', 'asset_tradable__all_asset', 'broker_credentials')
     
     print(f"📊 {pending_orders.count()} ordres en cours trouvés")
     
@@ -3156,9 +3155,9 @@ def pending_orders_tabulator(request):
             order_data = {
                 'id': order.id,
                 'order_id': order.order_id,
-                'symbol': order.all_asset.symbol,
-                'name': order.all_asset.name,
-                'platform': order.all_asset.platform,
+                'symbol': order.asset_tradable.symbol,
+                'name': order.asset_tradable.name,
+                'platform': order.asset_tradable.platform,
                 'broker': order.broker_credentials.name,
                 'order_type': order.order_type,
                 'side': order.side,
@@ -3173,7 +3172,7 @@ def pending_orders_tabulator(request):
                 'expires_at': order.expires_at.strftime('%Y-%m-%d %H:%M:%S') if order.expires_at else None,
             }
             orders_data.append(order_data)
-            print(f"✅ Ordre ajouté: {order.order_id} - {order.all_asset.symbol}")
+            print(f"✅ Ordre ajouté: {order.order_id} - {order.asset_tradable.symbol}")
         except Exception as e:
             print(f"❌ Erreur traitement ordre {order.id}: {e}")
             import traceback

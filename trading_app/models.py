@@ -458,7 +458,7 @@ class PendingOrder(models.Model):
     
     # Informations de base
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-    all_asset = models.ForeignKey(AllAssets, on_delete=models.CASCADE)  # Utiliser AllAssets au lieu d'AssetTradable
+    asset_tradable = models.ForeignKey(AssetTradable, on_delete=models.CASCADE)  # Lien vers AssetTradable
     broker_credentials = models.ForeignKey(BrokerCredentials, on_delete=models.CASCADE)
     
     # Détails de l'ordre
@@ -485,13 +485,13 @@ class PendingOrder(models.Model):
     class Meta:
         indexes = [
             models.Index(fields=['user', 'status']),
-            models.Index(fields=['all_asset', 'status']),
+            models.Index(fields=['asset_tradable', 'status']),
             models.Index(fields=['order_id']),
             models.Index(fields=['created_at']),
         ]
     
     def __str__(self):
-        return f"{self.side} {self.remaining_quantity} {self.all_asset.symbol} ({self.order_type}) - {self.status}"
+        return f"{self.side} {self.remaining_quantity} {self.asset_tradable.symbol} ({self.order_type}) - {self.status}"
     
     @property
     def is_active(self):

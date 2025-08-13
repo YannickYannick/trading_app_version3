@@ -6,7 +6,7 @@ from typing import Dict, List, Optional, Any
 from decimal import Decimal
 from django.contrib.auth.models import User
 from .brokers.factory import BrokerFactory
-from .models import BrokerCredentials, Asset, Trade, Position, AssetTradable, AssetType, Market, AllAssets
+from .models import BrokerCredentials, Asset, Trade, Position, AssetTradable, AssetType, Market, AllAssets, PendingOrder
 
 
 class BrokerService:
@@ -363,16 +363,52 @@ class BrokerService:
                 try:
                     print(f"  📝 Traitement ordre {i+1}/{len(orders_data)}: {order_data.get('order_id', 'N/A')}")
                     
-                    # Créer ou récupérer l'AllAssets
+                    # Pour Saxo, récupérer le symbole depuis les données du broker si le symbole est vide
+                    symbol = order_data['symbol']
+                    name = order_data.get('name', '')
+                    
+                    if broker_credentials.broker_type == 'saxo' and not symbol:
+                        # Récupérer le symbole depuis DisplayAndFormat
+                        broker_data = order_data.get('broker_data', {})
+                        display_format = broker_data.get('DisplayAndFormat', {})
+                        symbol = display_format.get('Symbol', f"UIC_{order_data.get('uic', 'Unknown')}")
+                        name = display_format.get('Description', f"Unknown {order_data.get('uic', 'Unknown')}")
+                        
+                        # Mettre à jour les données de l'ordre
+                        order_data['symbol'] = symbol
+                        order_data['name'] = name
+                    
+                    # Normaliser le symbole en majuscules pour la recherche
+                    symbol = symbol.upper() if symbol else symbol
+                    
+                    # Récupérer ou créer l'AllAssets
                     all_asset, created = AllAssets.objects.get_or_create(
-                        symbol=order_data['symbol'],
+                        symbol=symbol,
                         platform=broker_credentials.broker_type,
                         defaults={
-                            'name': order_data.get('name', order_data['symbol']),
-                            'asset_type': order_data.get('asset_type', 'Unknown'),
-                            'market': order_data.get('market', 'Unknown'),
-                            'currency': order_data.get('currency', 'USD'),
-                            'exchange': order_data.get('exchange', ''),
+                            'name': name,
+                            'asset_type': order_data.get('asset_type', 'Stock'),
+                            'market': 'NASDAQ',  # Par défaut pour Saxo
+                            'currency': 'USD',
+                            'exchange': 'NASDAQ',
+                            'saxo_uic': order_data.get('uic'),
+                        }
+                    )
+                    
+                    # Si l'AllAssets existait déjà, mettre à jour l'UIC si nécessaire
+                    if not created and order_data.get('uic') and not all_asset.saxo_uic:
+                        all_asset.saxo_uic = order_data.get('uic')
+                        all_asset.save()
+                    
+                    # Récupérer ou créer l'AssetTradable
+                    asset_tradable, created = AssetTradable.objects.get_or_create(
+                        symbol=symbol,
+                        platform=broker_credentials.broker_type,
+                        defaults={
+                            'all_asset': all_asset,
+                            'name': name,
+                            'asset_type': AssetType.objects.get_or_create(name=order_data.get('asset_type', 'Stock'))[0],
+                            'market': Market.objects.get_or_create(name='NASDAQ')[0],
                         }
                     )
                     
@@ -381,7 +417,7 @@ class BrokerService:
                         order_id=order_data['order_id'],
                         defaults={
                             'user': broker_credentials.user,
-                            'all_asset': all_asset,  # Utiliser AllAssets directement
+                            'asset_tradable': asset_tradable,  # Utiliser AssetTradable
                             'broker_credentials': broker_credentials,
                             'order_type': order_data['order_type'],
                             'side': order_data['side'],
