@@ -13,7 +13,7 @@ from decimal import Decimal
 import json
 import logging
 from datetime import datetime, timedelta
-from .services import BrokerService
+from .services import BrokerService  # Import direct de la classe BrokerService
 import requests
 import yfinance as yf
 import pandas as pd
@@ -21,6 +21,8 @@ import time
 from django.core.serializers.json import DjangoJSONEncoder
 from .brokers.factory import BrokerFactory
 from .models import Asset, Position, Trade, Strategy, StrategyExecution, BrokerCredentials, AssetType, Market, AssetTradable, AllAssets, PendingOrder
+# from .services.telegram_notifications import telegram_notifier  # Supprimé car le fichier n'existe plus
+
 
 logger = logging.getLogger(__name__)
 
@@ -238,26 +240,155 @@ def save_asset_ajax(request):
     return JsonResponse({"error": "Invalid request"}, status=400)
 
 def trade_tabulator(request):
-    """Vue pour afficher les trades dans un tableau Tabulator"""
-    trades = Trade.objects.filter(user=request.user).select_related('asset_tradable__all_asset')
+    """Vue pour afficher les trades dans un tableau Tabulator imbriqué"""
+    from decimal import Decimal
+    from django.db.models import Sum, Count, Max
+    from django.utils import timezone
+    from datetime import datetime
+    
+    # Récupérer les paramètres de filtrage
+    start_date = request.GET.get('start_date')
+    end_date = request.GET.get('end_date')
+    broker_filter = request.GET.get('broker')
+    
+    print(f"🔍 Filtres reçus: start_date={start_date}, end_date={end_date}, broker={broker_filter}")
+    
+    # Base query
+    trades = Trade.objects.filter(user=request.user).select_related(
+        'asset_tradable__all_asset'
+    )
+    
+    print(f"📊 Trades de base trouvés: {trades.count()}")
+    
+    # Appliquer les filtres avec gestion des timezones
+    if start_date:
+        try:
+            # Convertir en datetime avec timezone
+            start_datetime = datetime.strptime(start_date, '%Y-%m-%d')
+            start_datetime = timezone.make_aware(start_datetime)
+            trades = trades.filter(timestamp__gte=start_datetime)
+            print(f"✅ Filtre start_date appliqué: {start_datetime}")
+        except Exception as e:
+            print(f"❌ Erreur filtre start_date: {e}")
+    
+    if end_date:
+        try:
+            # Convertir en datetime avec timezone
+            end_datetime = datetime.strptime(end_date, '%Y-%m-%d')
+            end_datetime = timezone.make_aware(end_datetime)
+            # Ajouter 23:59:59 pour inclure toute la journée
+            end_datetime = end_datetime.replace(hour=23, minute=59, second=59)
+            trades = trades.filter(timestamp__lte=end_datetime)
+            print(f"✅ Filtre end_date appliqué: {end_datetime}")
+        except Exception as e:
+            print(f"❌ Erreur filtre end_date: {e}")
+    
+    if broker_filter:
+        trades = trades.filter(platform=broker_filter)
+        print(f"✅ Filtre broker appliqué: {broker_filter}")
+    
+    print(f"📊 Trades après filtres: {trades.count()}")
+    
+    # Debug: afficher quelques trades
+    for i, trade in enumerate(trades[:5]):
+        print(f"📋 Trade {i+1}: {trade.asset_tradable.symbol} - {trade.side} - {trade.size} @ {trade.price} - {trade.timestamp}")
+    
+    # Grouper par symbole de base (ignorer les suffixes comme :XNAS_0)
+    trades_data = []
+    symbol_groups = {}
+    
+    for trade in trades:
+        # Extraire le symbole de base (ex: "AAPL" depuis "AAPL:XNAS_0")
+        base_symbol = trade.asset_tradable.symbol.split(':')[0] if ':' in trade.asset_tradable.symbol else trade.asset_tradable.symbol
+        
+        if base_symbol not in symbol_groups:
+            symbol_groups[base_symbol] = {
+                'trades': [],
+                'total_buy_volume': Decimal('0'),
+                'total_sell_volume': Decimal('0'),
+                'total_buy_quantity': Decimal('0'),
+                'total_sell_quantity': Decimal('0'),
+                'last_trade': None,
+                'platforms': set()
+            }
+        
+        # Ajouter le trade au groupe
+        symbol_groups[base_symbol]['trades'].append(trade)
+        symbol_groups[base_symbol]['platforms'].add(trade.platform)
+        
+        # Calculer les volumes
+        trade_volume = trade.size * trade.price
+        if trade.side == 'BUY':
+            symbol_groups[base_symbol]['total_buy_volume'] += trade_volume
+            symbol_groups[base_symbol]['total_buy_quantity'] += trade.size
+        else:  # SELL
+            symbol_groups[base_symbol]['total_sell_volume'] += trade_volume
+            symbol_groups[base_symbol]['total_sell_quantity'] += trade.size
+        
+        # Dernier trade
+        if (symbol_groups[base_symbol]['last_trade'] is None or 
+            trade.timestamp > symbol_groups[base_symbol]['last_trade'].timestamp):
+            symbol_groups[base_symbol]['last_trade'] = trade
     
     # Préparer les données pour Tabulator
-    trades_data = []
-    for trade in trades:
-        trades_data.append({
+    for base_symbol, group_data in symbol_groups.items():
+        # Calculer les totaux nets
+        net_volume = group_data['total_buy_volume'] - group_data['total_sell_volume']
+        net_quantity = group_data['total_buy_quantity'] - group_data['total_sell_quantity']
+        
+        # Calculer le P&L basé sur la position nette
+        # Pour simplifier, on utilise le prix moyen des achats vs ventes
+        avg_buy_price = (group_data['total_buy_volume'] / group_data['total_buy_quantity'] 
+                        if group_data['total_buy_quantity'] > 0 else Decimal('0'))
+        avg_sell_price = (group_data['total_sell_volume'] / group_data['total_sell_quantity'] 
+                         if group_data['total_sell_quantity'] > 0 else Decimal('0'))
+        
+        # P&L = (Prix vente moyen - Prix achat moyen) × Quantité nette
+        if net_quantity > 0:  # Position longue
+            pnl = (avg_sell_price - avg_buy_price) * net_quantity
+        else:  # Position courte
+            pnl = (avg_buy_price - avg_sell_price) * abs(net_quantity)
+        
+        # Créer la ligne principale
+        main_row = {
+            'id': f"group_{base_symbol}",
+            'symbol': base_symbol,
+            'trade_count': len(group_data['trades']),
+            'net_volume': float(net_volume),
+            'net_quantity': float(net_quantity),
+            'pnl': float(pnl),
+            'last_trade': group_data['last_trade'].timestamp.strftime('%Y-%m-%d %H:%M:%S') if group_data['last_trade'] else '',
+            'platforms': ', '.join(group_data['platforms']),
+            'is_group': True,
+            'children': []
+        }
+        
+        # Ajouter les trades individuels comme enfants
+        for trade in group_data['trades']:
+            child_row = {
             'id': trade.id,
-            'symbol': trade.asset_tradable.symbol,
-            'name': trade.asset_tradable.name,
-            'platform': trade.asset_tradable.platform,
+                'symbol': trade.asset_tradable.symbol,
+                'name': trade.asset_tradable.name,
             'size': float(trade.size),
             'price': float(trade.price),
             'side': trade.side,
-            'timestamp': trade.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
-            'platform': trade.platform,
-        })
+                'volume': float(trade.size * trade.price),
+                'timestamp': trade.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+                'platform': trade.platform,
+                'is_group': False
+        }
+            main_row['children'].append(child_row)
+    
+        trades_data.append(main_row)
+    
+    # Trier par volume net décroissant
+    trades_data.sort(key=lambda x: abs(x['net_volume']), reverse=True)
     
     return render(request, 'trading_app/trade_tabulator.html', {
-        'trades_data': trades_data
+        'trades_data': json.dumps(trades_data, cls=DjangoJSONEncoder),
+        'start_date': start_date,
+        'end_date': end_date,
+        'broker_filter': broker_filter
     })
 
 def trade_tabulator_with_synch(request):
@@ -378,10 +509,25 @@ def strategy_tabulator(request):
     # Préparer les données pour le tableau
     data_strategies = []
     for strategy in strategies:
+        # Utiliser directement le champ portfolio_quantity pré-calculé
+        portfolio_quantity = float(strategy.portfolio_quantity) if strategy.portfolio_quantity != -1 else -1
+        
+        # Si pas encore calculé, le calculer maintenant
+        if portfolio_quantity == -1:
+            try:
+                strategy.calculate_portfolio_quantity()
+                portfolio_quantity = float(strategy.portfolio_quantity) if strategy.portfolio_quantity != -1 else -1
+            except Exception as e:
+                print(f"Erreur calcul portfolio pour {strategy.name}: {e}")
+                portfolio_quantity = -1
+        
         data_strategies.append({
             'id': strategy.id,
             'name': strategy.name,
             'asset_name': strategy.asset.symbol_clean if strategy.asset else 'N/A',
+            'portfolio_quantity': portfolio_quantity,  # Nouvelle colonne
+            'target_min_quantity': float(strategy.target_min_quantity) if strategy.target_min_quantity else 0,
+            'target_max_quantity': float(strategy.target_max_quantity) if strategy.target_max_quantity else 0,
             'algorithm_type': strategy.algorithm_type,
             'algorithm_type_display': strategy.get_algorithm_type_display(),
             'broker_name': strategy.broker.name if strategy.broker else 'N/A',
@@ -435,6 +581,18 @@ def create_strategy(request):
         if not isinstance(check_frequency, int) or check_frequency < 1 or check_frequency > 1440:
             return JsonResponse({'success': False, 'error': 'Fréquence invalide (doit être entre 1 et 1440 minutes)'})
         
+        # Traiter les quantités cibles
+        target_min_quantity = data.get('target_min_quantity', 0)
+        target_max_quantity = data.get('target_max_quantity', 0)
+        
+        # Validation des quantités cibles
+        if target_min_quantity and target_max_quantity:
+            if float(target_min_quantity) > float(target_max_quantity):
+                return JsonResponse({
+                    'success': False, 
+                    'error': 'La quantité minimale ne peut pas être supérieure à la quantité maximale'
+                })
+        
         # Créer la stratégie
         strategy = Strategy.objects.create(
             user=request.user,
@@ -446,6 +604,8 @@ def create_strategy(request):
             execution_mode=data['execution_mode'],
             check_frequency=check_frequency,
             comments=data.get('comments', ''),
+            target_min_quantity=target_min_quantity,
+            target_max_quantity=target_max_quantity,
             status='inactive'  # Par défaut inactive
         )
         
@@ -485,6 +645,8 @@ def strategy_details(request, strategy_id):
             'last_execution': strategy.last_execution.isoformat() if strategy.last_execution else None,
             'parameters': strategy.parameters,
             'comments': strategy.comments,
+            'target_min_quantity': float(strategy.target_min_quantity) if strategy.target_min_quantity else 0,
+            'target_max_quantity': float(strategy.target_max_quantity) if strategy.target_max_quantity else 0,
             'created_at': strategy.created_at.isoformat(),
         }
         
@@ -717,6 +879,18 @@ def update_strategy(request, strategy_id):
         if not isinstance(check_frequency, int) or check_frequency < 1 or check_frequency > 1440:
             return JsonResponse({'success': False, 'error': 'Fréquence invalide (doit être entre 1 et 1440 minutes)'})
         
+        # Traiter les quantités cibles
+        target_min_quantity = data.get('target_min_quantity', 0)
+        target_max_quantity = data.get('target_max_quantity', 0)
+        
+        # Validation des quantités cibles
+        if target_min_quantity and target_max_quantity:
+            if float(target_min_quantity) > float(target_max_quantity):
+                return JsonResponse({
+                    'success': False, 
+                    'error': 'La quantité minimale ne peut pas être supérieure à la quantité maximale'
+                })
+        
         # Mettre à jour la stratégie
         strategy.name = data['name']
         strategy.asset = asset
@@ -726,6 +900,8 @@ def update_strategy(request, strategy_id):
         strategy.execution_mode = data['execution_mode']
         strategy.check_frequency = check_frequency
         strategy.comments = data.get('comments', '')
+        strategy.target_min_quantity = target_min_quantity
+        strategy.target_max_quantity = target_max_quantity
         strategy.save()
         
         return JsonResponse({
@@ -2011,20 +2187,20 @@ def update_all_assets_with_yahoo(request):
                     else:
                         # Utiliser Yahoo Finance pour les actions/autres
                         yahoo_data = get_yahoo_data(clean_symbol)
-                    
-                    if yahoo_data:
-                        # Mettre à jour l'Asset avec les données Yahoo
-                        asset.name = yahoo_data.get('name', asset.name)
-                        asset.sector = yahoo_data.get('sector', asset.sector)
-                        asset.industry = yahoo_data.get('industry', asset.industry)
-                        asset.market_cap = yahoo_data.get('market_cap', asset.market_cap)
-                        asset.price_history = yahoo_data.get('price_history', asset.price_history)
-                        asset.save()
                         
-                        updated_count += 1
-                        print(f"✅ {asset.symbol} mis à jour (Yahoo): {asset.sector} - {asset.industry} - {asset.market_cap} - Historique: {len(json.loads(asset.price_history)) if asset.price_history != 'xxxx' else 0} bougies")
-                    else:
-                        print(f"⚠️ Pas de données Yahoo pour {asset.symbol} (symbole nettoyé: {clean_symbol})")
+                        if yahoo_data:
+                            # Mettre à jour l'Asset avec les données Yahoo
+                            asset.name = yahoo_data.get('name', asset.name)
+                            asset.sector = yahoo_data.get('sector', asset.sector)
+                            asset.industry = yahoo_data.get('industry', asset.industry)
+                            asset.market_cap = yahoo_data.get('market_cap', asset.market_cap)
+                            asset.price_history = yahoo_data.get('price_history', asset.price_history)
+                            asset.save()
+                            
+                            updated_count += 1
+                            print(f"✅ {asset.symbol} mis à jour (Yahoo): {asset.sector} - {asset.industry} - {asset.market_cap} - Historique: {len(json.loads(asset.price_history)) if asset.price_history != 'xxxx' else 0} bougies")
+                        else:
+                            print(f"⚠️ Pas de données Yahoo pour {asset.symbol} (symbole nettoyé: {clean_symbol})")
                         
                 except Exception as e:
                     print(f"❌ Erreur mise à jour {asset.symbol}: {e}")
@@ -2200,15 +2376,53 @@ def place_saxo_order_with_asset(asset: Asset, broker: BrokerCredentials, amount:
         
         if order_response.status_code == 200:
             order_data = order_response.json()
+            
+            # Envoyer notification Telegram
+            try:
+                # Récupérer le solde en cash (à adapter selon votre logique)
+                cash_balance = 0.0  # TODO: Récupérer le vrai solde depuis Saxo
+                
+                notification_data = {
+                    'symbol': asset.symbol,
+                    'name': asset.name or asset.symbol,
+                    'price': 0.0,  # Prix marché, pas encore connu
+                    'quantity': amount,
+                    'side': side,
+                    'broker': 'saxo',
+                    'cash_balance': cash_balance
+                }
+                
+                telegram_notifier.send_order_notification(notification_data)
+                print("✅ Notification Telegram envoyée")
+                
+            except Exception as e:
+                print(f"⚠️ Erreur notification Telegram: {e}")
+            
             return {
                 'status': 'success',
                 'message': f'Ordre passé avec succès: {order_data}',
                 'order_id': order_data.get('OrderId', 'Unknown')
             }
         else:
+            error_message = f'Erreur passage ordre: {order_response.status_code} - {order_response.text}'
+            
+            # Envoyer notification d'erreur Telegram
+            try:
+                error_notification_data = {
+                    'symbol': asset.symbol,
+                    'error': error_message,
+                    'broker': 'saxo'
+                }
+                
+                telegram_notifier.send_error_notification(error_notification_data)
+                print("✅ Notification d'erreur Telegram envoyée")
+                
+            except Exception as e:
+                print(f"⚠️ Erreur notification d'erreur Telegram: {e}")
+            
             return {
                 'status': 'error',
-                'message': f'Erreur passage ordre: {order_response.status_code} - {order_response.text}'
+                'message': error_message
             }
             
     except Exception as e:
@@ -2302,12 +2516,49 @@ def place_binance_order_with_asset(asset: Asset, broker: BrokerCredentials, amou
             print(f"📊 Résultat ordre Binance: {result}")
             
             if 'error' in result:
+                error_message = f'Erreur passage ordre Binance: {result["error"]}'
+                
+                # Envoyer notification d'erreur Telegram
+                try:
+                    error_notification_data = {
+                        'symbol': asset.symbol,
+                        'error': error_message,
+                        'broker': 'binance'
+                    }
+                    
+                    telegram_notifier.send_error_notification(error_notification_data)
+                    print("✅ Notification d'erreur Telegram envoyée")
+                    
+                except Exception as e:
+                    print(f"⚠️ Erreur notification d'erreur Telegram: {e}")
+                
                 return {
                     'status': 'error',
-                    'message': f'Erreur passage ordre Binance: {result["error"]}',
+                    'message': error_message,
                     'details': result
                 }
             else:
+                # Envoyer notification Telegram
+                try:
+                    # Récupérer le solde en cash (à adapter selon votre logique)
+                    cash_balance = 0.0  # TODO: Récupérer le vrai solde depuis Binance
+                    
+                    notification_data = {
+                        'symbol': asset.symbol,
+                        'name': asset.name or asset.symbol,
+                        'price': 0.0,  # Prix marché, pas encore connu
+                        'quantity': amount,
+                        'side': side,
+                        'broker': 'binance',
+                        'cash_balance': cash_balance
+                    }
+                    
+                    telegram_notifier.send_order_notification(notification_data)
+                    print("✅ Notification Telegram envoyée")
+                    
+                except Exception as e:
+                    print(f"⚠️ Erreur notification Telegram: {e}")
+                
                 return {
                     'status': 'success',
                     'message': f'Ordre Binance passé avec succès pour {asset_tradable.symbol}',
@@ -2376,6 +2627,27 @@ def update_all_saxo_assets(request):
         })
     
     return JsonResponse({'success': False, 'message': 'Méthode non autorisée'})
+
+@login_required
+def test_telegram_notification(request):
+    """Test des notifications Telegram"""
+    try:
+        # Test de connexion
+        if telegram_notifier.test_connection():
+            return JsonResponse({
+                'success': True,
+                'message': 'Notification Telegram de test envoyée avec succès !'
+            })
+        else:
+            return JsonResponse({
+                'success': False,
+                'message': 'Erreur de connexion au bot Telegram'
+            })
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'message': f'Erreur lors du test: {str(e)}'
+        })
 
 @login_required
 def update_saxo_assets_page(request):
@@ -2561,8 +2833,8 @@ def sync_saxo_trades(request, broker_id):
             return JsonResponse({
                 'success': False,
                 'error': result.get('error', 'Erreur inconnue lors de la synchronisation')
-            }, status=400)
-            
+                }, status=400)
+        
     except Exception as e:
         logger.error(f"Erreur lors de la synchronisation des trades Saxo: {str(e)}")
         return JsonResponse({
@@ -3348,3 +3620,167 @@ def test_page(request):
         'user_brokers': user_brokers,
         'orders_data': orders_data
     })
+
+def positions_overview_tabulator(request):
+    """Vue pour afficher le tableau d'aperçu des positions et ordres groupés par asset"""
+    if not request.user.is_authenticated:
+        return JsonResponse({'error': 'Utilisateur non authentifié'}, status=401)
+    
+    try:
+        # Récupérer tous les AssetTradable de l'utilisateur
+        asset_tradables = AssetTradable.objects.filter(
+            # Filtrer par les positions et pending orders de l'utilisateur
+            position__user=request.user
+        ).distinct()
+        
+        # Ajouter les AssetTradable des pending orders
+        pending_order_assets = AssetTradable.objects.filter(
+            pendingorder__user=request.user
+        ).distinct()
+        
+        # Combiner les deux querysets
+        asset_tradables = list(asset_tradables) + list(pending_order_assets)
+        # Supprimer les doublons basés sur l'ID
+        seen_ids = set()
+        unique_asset_tradables = []
+        for asset in asset_tradables:
+            if asset.id not in seen_ids:
+                seen_ids.add(asset.id)
+                unique_asset_tradables.append(asset)
+        asset_tradables = unique_asset_tradables
+        
+        strategies_data = []
+        
+        for asset_tradable in asset_tradables:
+            # Récupérer les positions pour cet asset
+            positions = Position.objects.filter(
+                user=request.user,
+                asset_tradable=asset_tradable
+            )
+            
+            # Récupérer les pending orders pour cet asset
+            pending_orders = PendingOrder.objects.filter(
+                user=request.user,
+                asset_tradable=asset_tradable
+            ).select_related('broker_credentials')
+            
+            # Calculer les totaux
+            total_position_size = sum(float(pos.size) for pos in positions)
+            total_pending_quantity = sum(float(order.original_quantity) for order in pending_orders)
+            
+            # Calculer le net (positions + pending orders)
+            # Les positions BUY et pending orders BUY sont positives
+            # Les positions SELL et pending orders SELL sont négatives
+            net_position = 0.0
+            for pos in positions:
+                if pos.side == 'BUY':
+                    net_position += float(pos.size)
+                else:  # SELL
+                    net_position -= float(pos.size)
+            
+            for order in pending_orders:
+                if order.side == 'BUY':
+                    net_position += float(order.original_quantity)
+                else:  # SELL
+                    net_position -= float(order.original_quantity)
+            
+            # Créer la ligne principale pour l'asset
+            asset_row = {
+                'id': f"asset_{asset_tradable.id}",
+                'type': 'asset',
+                'symbol': asset_tradable.symbol or 'Unknown',
+                'name': asset_tradable.name or 'Unknown',
+                'platform': asset_tradable.platform,
+                'total_position_size': total_position_size,
+                'total_pending_quantity': total_pending_quantity,
+                'net_position': net_position,
+                'positions_count': positions.count(),
+                'pending_orders_count': pending_orders.count(),
+                'created_at': asset_tradable.created_at.strftime('%d/%m/%Y %H:%M') if asset_tradable.created_at else '',
+                'children': []
+            }
+            
+            # Ajouter les positions comme enfants
+            for pos in positions:
+                position_row = {
+                    'id': f"position_{pos.id}",
+                    'type': 'position',
+                    'symbol': asset_tradable.symbol or 'Unknown',
+                    'name': asset_tradable.name or 'Unknown',
+                    'side': pos.side,
+                    'size': float(pos.size),
+                    'entry_price': float(pos.entry_price) if pos.entry_price else 0.0,
+                    'current_price': float(pos.current_price) if pos.current_price else 0.0,
+                    'pnl': float(pos.pnl) if pos.pnl else 0.0,
+                    'status': pos.status,
+                    'broker': 'Unknown',  # Position n'a pas de broker_credentials
+                    'created_at': pos.created_at.strftime('%d/%m/%Y %H:%M') if pos.created_at else '',
+                    'asset_tradable_id': asset_tradable.id
+                }
+                asset_row['children'].append(position_row)
+            
+            # Ajouter les pending orders comme enfants
+            for order in pending_orders:
+                order_row = {
+                    'id': f"order_{order.id}",
+                    'type': 'pending_order',
+                    'symbol': asset_tradable.symbol or 'Unknown',
+                    'name': asset_tradable.name or 'Unknown',
+                    'side': order.side,
+                    'quantity': float(order.original_quantity),
+                    'executed_quantity': float(order.executed_quantity) if order.executed_quantity else 0.0,
+                    'remaining_quantity': float(order.remaining_quantity) if order.remaining_quantity else 0.0,
+                    'price': float(order.price) if order.price else None,
+                    'order_type': order.order_type,
+                    'status': order.status,
+                    'broker': order.broker_credentials.name if order.broker_credentials else 'Unknown',
+                    'created_at': order.created_at.strftime('%d/%m/%Y %H:%M') if order.created_at else '',
+                    'asset_tradable_id': asset_tradable.id
+                }
+                asset_row['children'].append(order_row)
+            
+            strategies_data.append(asset_row)
+        
+        # Trier par symbole
+        strategies_data.sort(key=lambda x: x['symbol'])
+        
+        return JsonResponse({
+            'success': True,
+            'data': strategies_data
+        })
+        
+    except Exception as e:
+        logger.error(f"Erreur dans positions_overview_tabulator: {e}")
+        return JsonResponse({
+            'success': False,
+            'error': f'Erreur lors de la récupération des données: {str(e)}'
+        })
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def update_portfolio_quantities(request):
+    """Met à jour les quantités de portefeuille pour toutes les stratégies de l'utilisateur"""
+    try:
+        # Mettre à jour toutes les stratégies de l'utilisateur
+        strategies = Strategy.objects.filter(user=request.user)
+        updated_count = 0
+        
+        for strategy in strategies:
+            try:
+                strategy.calculate_portfolio_quantity()
+                updated_count += 1
+            except Exception as e:
+                print(f"Erreur mise à jour stratégie {strategy.name}: {e}")
+        
+        return JsonResponse({
+            'success': True,
+            'message': f'{updated_count} stratégies mises à jour',
+            'updated_count': updated_count
+        })
+        
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'error': str(e)
+        })

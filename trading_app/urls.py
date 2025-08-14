@@ -15,6 +15,7 @@ urlpatterns = [
     path('brokers/<int:broker_id>/order/', views.place_broker_order, name='place_broker_order'),
     
     path('trades/tabulator/', views.trade_tabulator, name='trade_tabulator'),
+    path('test-telegram/', views.test_telegram_notification, name='test_telegram'),
     path('trades/tabulator/synch/', views.trade_tabulator_with_synch, name='trade_tabulator_with_synch'),
     path('trades/binance/', views.binance_trades_ajax, name='binance_trades_ajax'),
     path('trades/delete-all/', views.delete_all_trades, name='delete_all_trades'),
@@ -28,6 +29,7 @@ urlpatterns = [
     path('positions/binance/', views.binance_positions_ajax, name='binance_positions_ajax'),
     path('positions/delete-all/', views.delete_all_positions, name='delete_all_positions'),
     path('positions/update-all/', views.update_all_positions, name='update_all_positions'),
+    path('positions/overview/', views.positions_overview_tabulator, name='positions_overview_tabulator'),
 
     path('assets/sync-all/', views.sync_all_assets, name='sync_all_assets'),
     path('brokers/<int:broker_id>/sync-assets/', views.sync_broker_assets, name='sync_broker_assets'),
@@ -53,6 +55,7 @@ urlpatterns = [
     path('strategies/<int:strategy_id>/execute/', views.execute_strategy, name='execute_strategy'),
     path('strategies/<int:strategy_id>/update-frequency/', views.update_strategy_frequency, name='update_strategy_frequency'),
     path('strategies/<int:strategy_id>/update/', views.update_strategy, name='update_strategy'),
+    path('strategies/update-portfolio/', views.update_portfolio_quantities, name='update_portfolio_quantities'),
     path('strategies/execution-history/', views.execution_history, name='execution_history'),
     
     path('order/place/', views.place_order_view, name='place_order_view'),

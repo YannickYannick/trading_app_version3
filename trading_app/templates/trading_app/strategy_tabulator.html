@@ -10,6 +10,9 @@
             <h1>Stratégies de Trading</h1>
         </div>
         <div class="col-auto">
+            <button type="button" class="btn btn-warning me-2" onclick="updatePortfolioQuantities()">
+                <i class="fas fa-sync-alt"></i> Mettre à jour Portefeuille
+            </button>
             <button type="button" class="btn btn-success me-2" data-bs-toggle="modal" data-bs-target="#executeStrategyModal">
                 <i class="fas fa-play"></i> Exécuter Stratégie
             </button>
@@ -26,6 +29,91 @@
     <div class="card">
         <div class="card-body">
 <div id="strategy-table"></div>
+        </div>
+    </div>
+</div>
+
+<!-- ===== SECTION TABLEAU DES POSITIONS ET ORDRES ===== -->
+<div class="container-fluid mt-5">
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">
+                        <i class="fas fa-chart-pie"></i> Vue d'ensemble des Positions et Ordres
+                    </h3>
+                    <p class="card-subtitle text-muted">
+                        Positions et ordres en cours groupés par actif
+                    </p>
+                </div>
+                <div class="card-body">
+                    <!-- Statistiques globales -->
+                    <div class="row mb-4">
+                        <div class="col-md-3">
+                            <div class="card bg-primary text-white">
+                                <div class="card-body text-center">
+                                    <h4 id="total-assets-positions">-</h4>
+                                    <small>Actifs uniques</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card bg-success text-white">
+                                <div class="card-body text-center">
+                                    <h4 id="total-positions-count">-</h4>
+                                    <small>Positions totales</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card bg-warning text-white">
+                                <div class="card-body text-center">
+                                    <h4 id="total-pending-orders-count">-</h4>
+                                    <small>Ordres en cours</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card bg-info text-white">
+                                <div class="card-body text-center">
+                                    <h4 id="net-exposure-total">-</h4>
+                                    <small>Exposition nette</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Bouton de rafraîchissement -->
+                    <div class="row mb-3">
+                        <div class="col-12 text-end">
+                            <button type="button" class="btn btn-primary" onclick="loadPositionsData()">
+                                <i class="fas fa-sync-alt"></i> Rafraîchir les données
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Tableau Tabulator -->
+                    <div id="positions-overview-table"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal pour les détails des positions -->
+<div class="modal fade" id="positionsDetailsModal" tabindex="-1" aria-labelledby="positionsDetailsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="positionsDetailsModalLabel">Détails de l'actif</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="positionsDetailsModalBody">
+                <!-- Le contenu sera chargé dynamiquement -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fermer</button>
+            </div>
         </div>
     </div>
 </div>
@@ -99,6 +187,39 @@
                         <label class="form-label">Paramètres de l'algorithme</label>
                         <div id="algorithmParameters">
                             <!-- Les paramètres seront générés dynamiquement -->
+                        </div>
+                    </div>
+                    
+                    <!-- Quantités cibles pour la gestion de position -->
+                    <div class="mb-3">
+                        <label class="form-label">Quantités cibles pour la gestion de position</label>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="strategyTargetMin" class="form-label">Quantité minimale cible</label>
+                                    <input type="number" class="form-control" id="strategyTargetMin" 
+                                           placeholder="Ex: 100" min="0" step="0.01"
+                                           title="Quantité minimale d'actions à maintenir en portefeuille">
+                                    <small class="form-text text-muted">Quantité minimale d'actions à maintenir</small>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="strategyTargetMax" class="form-label">Quantité maximale cible</label>
+                                    <input type="number" class="form-control" id="strategyTargetMax" 
+                                           placeholder="Ex: 180" min="0" step="0.01"
+                                           title="Quantité maximale d'actions à maintenir en portefeuille">
+                                    <small class="form-text text-muted">Quantité maximale d'actions à maintenir</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle"></i>
+                            <strong>Gestion intelligente des positions :</strong><br>
+                            • <strong>Achat :</strong> Si le prix est en dessous du seuil bas ET que la position est inférieure au maximum<br>
+                            • <strong>Vente :</strong> Si le prix est au-dessus du seuil haut ET que la position est supérieure au minimum<br>
+                            • <strong>HOLD :</strong> Si la position est déjà au minimum ou au maximum<br>
+                            • <strong>Quantité automatique :</strong> La quantité à trader est calculée automatiquement selon les objectifs
                         </div>
                     </div>
                     
@@ -207,6 +328,38 @@
                         <label class="form-label">Paramètres de l'algorithme</label>
                         <div id="editAlgorithmParameters">
                             <!-- Les paramètres seront générés dynamiquement -->
+                        </div>
+                    </div>
+                    
+                    <!-- Quantités cibles pour la gestion de position -->
+                    <div class="mb-3">
+                        <label class="form-label">Quantités cibles pour la gestion de position</label>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="editStrategyTargetMin" class="form-label">Quantité minimale cible</label>
+                                    <input type="number" class="form-control" id="editStrategyTargetMin" 
+                                           placeholder="Ex: 100" min="0" step="0.01"
+                                           title="Quantité minimale d'actions à maintenir en portefeuille">
+                                    <small class="form-text text-muted">Quantité minimale d'actions à maintenir</small>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="editStrategyTargetMax" class="form-label">Quantité maximale cible</label>
+                                    <input type="number" class="form-control" id="editStrategyTargetMax" 
+                                           placeholder="Ex: 180" min="0" step="0.01"
+                                           title="Quantité maximale d'actions à maintenir en portefeuille">
+                                    <small class="form-text text-muted">Quantité maximale d'actions à maintenir</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle"></i>
+                            <strong>Gestion intelligente des positions :</strong><br>
+                            • <strong>Achat :</strong> Si le prix est en dessous du seuil bas ET que la position est inférieure au maximum<br>
+                            • <strong>Vente :</strong> Si le prix est au-dessus du seuil haut ET que la position est supérieure au minimum<br>
+                            • <strong>HOLD :</strong> Si la position est déjà au minimum ou au maximum
                         </div>
                     </div>
                     
@@ -319,6 +472,68 @@
 <link href="https://cdnjs.cloudflare.com/ajax/libs/tabulator/5.0.3/css/tabulator.min.css" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tabulator/5.0.3/js/tabulator.min.js"></script>
 
+<style>
+/* Styles pour le tableau des positions et ordres */
+.asset-row {
+    background-color: #e3f2fd !important;
+    font-weight: bold;
+    border-left: 4px solid #2196F3 !important;
+}
+
+.position-row {
+    background-color: #f1f8e9 !important;
+    border-left: 4px solid #4CAF50 !important;
+}
+
+.pending-order-row {
+    background-color: #fff3e0 !important;
+    border-left: 4px solid #FF9800 !important;
+}
+
+.side-buy {
+    color: #4CAF50;
+    font-weight: bold;
+}
+
+.side-sell {
+    color: #f44336;
+    font-weight: bold;
+}
+
+.net-positive {
+    color: #4CAF50;
+    font-weight: bold;
+}
+
+.net-negative {
+    color: #f44336;
+    font-weight: bold;
+}
+
+.net-zero {
+    color: #757575;
+}
+
+/* Styles pour les statistiques */
+.card.bg-primary, .card.bg-success, .card.bg-warning, .card.bg-info {
+    transition: transform 0.2s;
+}
+
+.card.bg-primary:hover, .card.bg-success:hover, .card.bg-warning:hover, .card.bg-info:hover {
+    transform: translateY(-2px);
+}
+
+/* Styles pour le modal */
+.modal-lg .table {
+    font-size: 0.9rem;
+}
+
+.modal-lg .table th {
+    background-color: #f8f9fa;
+    font-weight: 600;
+}
+</style>
+
 <script>
 // Données globales
 var strategiesData = {{ data_strategies|default:"[]"|safe }};
@@ -330,7 +545,7 @@ var algorithmParameters = {
     'threshold': [
         {name: 'threshold_low', label: 'Seuil bas', type: 'number', default: 100.0},
         {name: 'threshold_high', label: 'Seuil haut', type: 'number', default: 200.0},
-        {name: 'order_size', label: 'Taille ordre', type: 'number', default: 1.0},
+        {name: 'order_size', label: 'Limite max par trade', type: 'number', default: 1000.0, help: 'Quantité maximale d\'actions par trade (sécurité)'},
         {name: 'stop_loss', label: 'Stop Loss (%)', type: 'number', default: 5.0}
     ],
     'ma_crossover': [
@@ -385,6 +600,31 @@ function initializeTable() {
         columns: [
             {title: "Nom", field: "name", headerFilter: "input"},
             {title: "Asset", field: "asset_name", headerFilter: "input"},
+            {title: "Portefeuille", field: "portfolio_quantity", formatter: function(cell) {
+                var quantity = parseFloat(cell.getValue()) || 0;
+                if (quantity === 0) {
+                    return '<span class="text-muted">0</span>';
+                } else {
+                    var color = quantity > 0 ? 'success' : 'danger';
+                    return '<span class="text-' + color + ' fw-bold">' + quantity.toFixed(2) + '</span>';
+                }
+            }, headerFilter: "input"},
+            {title: "Min Cible", field: "target_min_quantity", formatter: function(cell) {
+                var quantity = parseFloat(cell.getValue()) || 0;
+                if (quantity === 0) {
+                    return '<span class="text-muted">-</span>';
+                } else {
+                    return '<span class="text-info fw-bold">' + quantity.toFixed(2) + '</span>';
+                }
+            }, headerFilter: "input"},
+            {title: "Max Cible", field: "target_max_quantity", formatter: function(cell) {
+                var quantity = parseFloat(cell.getValue()) || 0;
+                if (quantity === 0) {
+                    return '<span class="text-muted">-</span>';
+                } else {
+                    return '<span class="text-warning fw-bold">' + quantity.toFixed(2) + '</span>';
+                }
+            }, headerFilter: "input"},
             {title: "Algorithme", field: "algorithm_type_display", headerFilter: "select"},
             {title: "Broker", field: "broker_name", headerFilter: "input"},
             {title: "Mode", field: "execution_mode_display", headerFilter: "select"},
@@ -533,7 +773,9 @@ function saveStrategy() {
         execution_mode: document.getElementById('strategyExecutionMode').value,
         check_frequency: frequency,
         comments: document.getElementById('strategyComments').value,
-        parameters: getAlgorithmParameters()
+        parameters: getAlgorithmParameters(),
+        target_min_quantity: parseFloat(document.getElementById('strategyTargetMin').value) || 0,
+        target_max_quantity: parseFloat(document.getElementById('strategyTargetMax').value) || 0
     };
     
     // Validation
@@ -623,6 +865,10 @@ function populateEditForm(strategy) {
     document.getElementById('editStrategyFrequency').value = strategy.check_frequency;
     document.getElementById('editStrategyComments').value = strategy.comments || '';
     
+    // Quantités cibles
+    document.getElementById('editStrategyTargetMin').value = strategy.target_min_quantity || '';
+    document.getElementById('editStrategyTargetMax').value = strategy.target_max_quantity || '';
+    
     // Générer les paramètres de l'algorithme
     updateEditAlgorithmParameters(strategy.algorithm_type, strategy.parameters);
 }
@@ -665,7 +911,9 @@ function updateStrategy() {
         execution_mode: document.getElementById('editStrategyExecutionMode').value,
         check_frequency: frequency,
         comments: document.getElementById('editStrategyComments').value,
-        parameters: getEditAlgorithmParameters()
+        parameters: getEditAlgorithmParameters(),
+        target_min_quantity: parseFloat(document.getElementById('editStrategyTargetMin').value) || 0,
+        target_max_quantity: parseFloat(document.getElementById('editStrategyTargetMax').value) || 0
     };
     
     // Validation
@@ -970,5 +1218,385 @@ function clearHistoryFilters() {
     document.getElementById('historyDateTo').value = '';
     loadExecutionHistory();
 }
+
+// ===== TABLEAU DES POSITIONS ET ORDRES =====
+
+// Configuration du tableau des positions et ordres
+const positionsTable = new Tabulator("#positions-overview-table", {
+    data: [],
+    layout: "fitDataFill",
+    pagination: true,
+    paginationSize: 20,
+    paginationSizeSelector: [10, 20, 50, 100],
+    height: "600px",
+    columns: [
+        {
+            title: "Symbole",
+            field: "symbol",
+            headerFilter: true,
+            formatter: function(cell) {
+                const row = cell.getRow();
+                if (row.getData().type === 'asset') {
+                    return `<strong>${cell.getValue()}</strong>`;
+                }
+                return cell.getValue();
+            }
+        },
+        {
+            title: "Nom",
+            field: "name",
+            headerFilter: true,
+            width: 200
+        },
+        {
+            title: "Type",
+            field: "type",
+            headerFilter: true,
+            formatter: function(cell) {
+                const type = cell.getValue();
+                if (type === 'asset') {
+                    return '<span class="badge bg-primary">Asset</span>';
+                } else if (type === 'position') {
+                    return '<span class="badge bg-success">Position</span>';
+                } else if (type === 'pending_order') {
+                    return '<span class="badge bg-warning">Ordre</span>';
+                }
+                return type;
+            }
+        },
+        {
+            title: "Side",
+            field: "side",
+            headerFilter: true,
+            formatter: function(cell) {
+                const side = cell.getValue();
+                if (side === 'BUY') {
+                    return '<span class="side-buy">BUY</span>';
+                } else if (side === 'SELL') {
+                    return '<span class="side-sell">SELL</span>';
+                }
+                return side || '-';
+            }
+        },
+        {
+            title: "Taille/Quantité",
+            field: "size",
+            headerFilter: false,
+            formatter: function(cell) {
+                const row = cell.getRow();
+                const data = row.getData();
+                
+                if (data.type === 'asset') {
+                    return `<strong>Net: ${data.net_position.toFixed(2)}</strong>`;
+                } else if (data.type === 'position') {
+                    return data.size.toFixed(2);
+                } else if (data.type === 'pending_order') {
+                    return `${data.quantity.toFixed(2)} (${data.executed_quantity.toFixed(2)} exécuté)`;
+                }
+                return '-';
+            }
+        },
+        {
+            title: "Prix",
+            field: "price",
+            headerFilter: false,
+            formatter: function(cell) {
+                const row = cell.getRow();
+                const data = row.getData();
+                
+                if (data.type === 'position') {
+                    return `Entrée: ${data.entry_price?.toFixed(4) || '-'}<br>Actuel: ${data.current_price?.toFixed(4) || '-'}`;
+                } else if (data.type === 'pending_order') {
+                    return data.price ? data.price.toFixed(4) : 'Market';
+                }
+                return '-';
+            }
+        },
+        {
+            title: "P&L",
+            field: "pnl",
+            headerFilter: false,
+            formatter: function(cell) {
+                const row = cell.getRow();
+                const data = row.getData();
+                
+                if (data.type === 'position') {
+                    const pnl = data.pnl || 0;
+                    const className = pnl > 0 ? 'net-positive' : pnl < 0 ? 'net-negative' : 'net-zero';
+                    return `<span class="${className}">${pnl.toFixed(2)}</span>`;
+                }
+                return '-';
+            }
+        },
+        {
+            title: "Statut",
+            field: "status",
+            headerFilter: true,
+            formatter: function(cell) {
+                const status = cell.getValue();
+                if (!status) return '-';
+                
+                let badgeClass = 'bg-secondary';
+                if (status === 'OPEN') badgeClass = 'bg-success';
+                else if (status === 'CLOSED') badgeClass = 'bg-danger';
+                else if (status === 'PENDING') badgeClass = 'bg-warning';
+                else if (status === 'WORKING') badgeClass = 'bg-info';
+                else if (status === 'FILLED') badgeClass = 'bg-success';
+                
+                return `<span class="badge ${badgeClass}">${status}</span>`;
+            }
+        },
+        {
+            title: "Broker",
+            field: "broker",
+            headerFilter: true
+        },
+        {
+            title: "Créé le",
+            field: "created_at",
+            headerFilter: false,
+            sorter: "datetime"
+        },
+        {
+            title: "Actions",
+            headerSort: false,
+            formatter: function(cell) {
+                const row = cell.getRow();
+                const data = row.getData();
+                
+                if (data.type === 'asset') {
+                    return `<button class="btn btn-sm btn-info" onclick="showAssetDetails('${data.symbol}')">
+                        <i class="fas fa-eye"></i> Détails
+                    </button>`;
+                }
+                return '-';
+            }
+        }
+    ],
+    rowFormatter: function(row) {
+        const data = row.getData();
+        if (data.type === 'asset') {
+            row.getElement().classList.add('asset-row');
+        } else if (data.type === 'position') {
+            row.getElement().classList.add('position-row');
+        } else if (data.type === 'pending_order') {
+            row.getElement().classList.add('pending-order-row');
+        }
+    },
+    dataTree: true,
+    dataTreeStartExpanded: false,
+    dataTreeChildField: "children"
+});
+
+// Charger les données des positions et ordres
+function loadPositionsData() {
+    fetch('/positions/overview/')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                positionsTable.setData(data.data);
+                updatePositionsStats(data.data);
+            } else {
+                console.error('Erreur:', data.error);
+                alert('Erreur lors du chargement des données: ' + data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Erreur:', error);
+            alert('Erreur lors du chargement des données');
+        });
+}
+
+// Mettre à jour les statistiques des positions
+function updatePositionsStats(data) {
+    const assets = data.filter(item => item.type === 'asset');
+    const positions = data.filter(item => item.type === 'position');
+    const pendingOrders = data.filter(item => item.type === 'pending_order');
+    
+    const totalPositions = positions.length;
+    const totalPendingOrders = pendingOrders.length;
+    const netExposure = assets.reduce((sum, asset) => sum + asset.net_position, 0);
+    
+    document.getElementById('total-assets-positions').textContent = assets.length;
+    document.getElementById('total-positions-count').textContent = totalPositions;
+    document.getElementById('total-pending-orders-count').textContent = totalPendingOrders;
+    
+    const netElement = document.getElementById('net-exposure-total');
+    netElement.textContent = netExposure.toFixed(2);
+    netElement.className = netExposure > 0 ? 'net-positive' : netExposure < 0 ? 'net-negative' : 'net-zero';
+}
+
+// Fonction pour afficher les détails d'un asset
+window.showAssetDetails = function(symbol) {
+    const assetData = positionsTable.getData().find(item => item.type === 'asset' && item.symbol === symbol);
+    if (!assetData) return;
+
+    const positions = assetData.children.filter(child => child.type === 'position');
+    const pendingOrders = assetData.children.filter(child => child.type === 'pending_order');
+
+    let detailsHtml = `
+        <h6>${assetData.symbol} - ${assetData.name}</h6>
+        <p><strong>Plateforme:</strong> ${assetData.platform}</p>
+        <p><strong>Exposition nette:</strong> <span class="${assetData.net_position > 0 ? 'net-positive' : assetData.net_position < 0 ? 'net-negative' : 'net-zero'}">${assetData.net_position.toFixed(2)}</span></p>
+        
+        <h6 class="mt-3">Positions (${positions.length})</h6>
+        <div class="table-responsive">
+            <table class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>Side</th>
+                        <th>Taille</th>
+                        <th>Prix entrée</th>
+                        <th>Prix actuel</th>
+                        <th>P&L</th>
+                        <th>Statut</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+
+    positions.forEach(pos => {
+        const pnlClass = pos.pnl > 0 ? 'net-positive' : pos.pnl < 0 ? 'net-negative' : 'net-zero';
+        detailsHtml += `
+            <tr>
+                <td><span class="${pos.side === 'BUY' ? 'side-buy' : 'side-sell'}">${pos.side}</span></td>
+                <td>${pos.size.toFixed(2)}</td>
+                <td>${pos.entry_price.toFixed(4)}</td>
+                <td>${pos.current_price.toFixed(4)}</td>
+                <td class="${pnlClass}">${pos.pnl.toFixed(2)}</td>
+                <td><span class="badge bg-success">${pos.status}</span></td>
+            </tr>
+        `;
+    });
+
+    detailsHtml += `
+                </tbody>
+            </table>
+        </div>
+        
+        <h6 class="mt-3">Ordres en cours (${pendingOrders.length})</h6>
+        <div class="table-responsive">
+            <table class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>Side</th>
+                        <th>Quantité</th>
+                        <th>Exécuté</th>
+                        <th>Prix</th>
+                        <th>Type</th>
+                        <th>Statut</th>
+                        <th>Broker</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+
+    pendingOrders.forEach(order => {
+        detailsHtml += `
+            <tr>
+                <td><span class="${order.side === 'BUY' ? 'side-buy' : 'side-sell'}">${order.side}</span></td>
+                <td>${order.quantity.toFixed(2)}</td>
+                <td>${order.executed_quantity.toFixed(2)}</td>
+                <td>${order.price ? order.price.toFixed(4) : 'Market'}</td>
+                <td>${order.order_type}</td>
+                <td><span class="badge bg-warning">${order.status}</span></td>
+                <td>${order.broker}</td>
+            </tr>
+        `;
+    });
+
+    detailsHtml += `
+                </tbody>
+            </table>
+        </div>
+    `;
+
+    document.getElementById('positionsDetailsModalBody').innerHTML = detailsHtml;
+    new bootstrap.Modal(document.getElementById('positionsDetailsModal')).show();
+};
+
+// Fonction pour mettre à jour les quantités de portefeuille
+function updatePortfolioQuantities() {
+    // Afficher un indicateur de chargement
+    const button = event.target;
+    const originalText = button.innerHTML;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Mise à jour...';
+    button.disabled = true;
+    
+    // Appeler l'API pour mettre à jour les quantités
+    fetch('/strategies/update-portfolio/', {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': getCookie('csrftoken'),
+            'Content-Type': 'application/json',
+        },
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Afficher un message de succès
+            showAlert('success', `Portefeuille mis à jour avec succès ! ${data.updated_count} stratégies mises à jour.`);
+            
+            // Recharger la page pour afficher les nouvelles données
+            setTimeout(() => {
+                window.location.reload();
+            }, 1500);
+        } else {
+            // Afficher un message d'erreur
+            showAlert('danger', `Erreur lors de la mise à jour : ${data.error}`);
+        }
+    })
+    .catch(error => {
+        console.error('Erreur:', error);
+        showAlert('danger', 'Erreur lors de la mise à jour du portefeuille');
+    })
+    .finally(() => {
+        // Restaurer le bouton
+        button.innerHTML = originalText;
+        button.disabled = false;
+    });
+}
+
+// Fonction pour afficher des alertes
+function showAlert(type, message) {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+    alertDiv.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    
+    // Insérer l'alerte en haut de la page
+    const container = document.querySelector('.container-fluid');
+    container.insertBefore(alertDiv, container.firstChild);
+    
+    // Auto-fermer après 5 secondes
+    setTimeout(() => {
+        if (alertDiv.parentNode) {
+            alertDiv.remove();
+        }
+    }, 5000);
+}
+
+// Fonction pour récupérer le cookie CSRF
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+
+// Charger les données au chargement de la page
+document.addEventListener('DOMContentLoaded', function() {
+    loadPositionsData();
+});
 </script>
 {% endblock %}

@@ -118,13 +118,13 @@ class BrokerService:
                         asset_type, _ = AssetType.objects.get_or_create(name=pos_data.get('type', 'Unknown'))
                         market, _ = Market.objects.get_or_create(name=pos_data.get('market', 'Unknown'))
                         
-                        # Pour Saxo, créer un Asset unique pour chaque position
-                        # en ajoutant un suffixe basé sur l'index pour éviter les conflits
-                        unique_symbol = f"{pos_data['symbol']}_{i}" if broker_credentials.broker_type == 'saxo' else pos_data['symbol']
+                        # Pour Saxo, utiliser le symbole original (pas de suffixe unique)
+                        # car nous n'avons plus besoin d'Asset uniques par position
+                        symbol_to_use = pos_data['symbol']  # Utiliser le symbole original pour tous les brokers
                         
-                        # Récupérer ou créer l'Asset sous-jacent avec le symbole unique
+                        # Récupérer ou créer l'Asset sous-jacent avec le symbole original
                         asset, _ = Asset.objects.get_or_create(
-                            symbol=unique_symbol,
+                            symbol=symbol_to_use,
                             defaults={
                                 'name': pos_data.get('name', pos_data['symbol']),
                                 'sector': pos_data.get('sector', 'xxxx'),
@@ -134,11 +134,7 @@ class BrokerService:
                             }
                         )
                         
-                        # Pour Saxo, créer un AssetTradable unique pour chaque position
-                        # en ajoutant un suffixe basé sur l'index
-                        unique_symbol = f"{pos_data['symbol']}_{i}" if broker_credentials.broker_type == 'saxo' else pos_data['symbol']
-                        
-                        # Trouver un AllAssets correspondant existant (utiliser le symbole original)
+                        # Trouver un AllAssets correspondant existant
                         original_symbol = pos_data['symbol']
                         all_asset = AssetTradable.find_matching_all_asset(original_symbol, broker_credentials.broker_type)
                         
@@ -148,9 +144,10 @@ class BrokerService:
                         
                         # Pour Saxo, créer un AssetTradable unique avec suffixe pour chaque position
                         if broker_credentials.broker_type == 'saxo':
-                            # Créer un AssetTradable unique avec le suffixe
+                            # Pour Saxo, créer UN SEUL AssetTradable par AllAssets (pas par position)
+                            # Utiliser le symbole original sans suffixe pour l'AssetTradable
                             asset_tradable, _ = AssetTradable.objects.get_or_create(
-                                symbol=unique_symbol.upper(),
+                                symbol=original_symbol.upper(),  # Utiliser le symbole original, pas unique_symbol
                                 platform=broker_credentials.broker_type,
                                 defaults={
                                     'all_asset': all_asset,
@@ -160,10 +157,10 @@ class BrokerService:
                                 }
                             )
                             
-                            # Créer une nouvelle position (pas get_or_create car on veut des positions multiples)
+                            # Créer une nouvelle position liée au même AssetTradable
                             position = Position.objects.create(
                                 user=broker_credentials.user,
-                                asset_tradable=asset_tradable,
+                                asset_tradable=asset_tradable,  # Toutes les positions utilisent le même AssetTradable
                                 size=Decimal(str(pos_data.get('size', 0))),
                                 entry_price=Decimal(str(pos_data.get('entry_price', 0))),
                                 current_price=Decimal(str(pos_data.get('current_price', 0))),
@@ -241,22 +238,6 @@ class BrokerService:
                     # Récupérer ou créer AssetType et Market
                     asset_type, _ = AssetType.objects.get_or_create(name=trade_data.get('type', 'Unknown'))
                     market, _ = Market.objects.get_or_create(name=trade_data.get('market', 'Unknown'))
-                    
-                    # Pour Saxo, créer un Asset unique pour chaque trade
-                    # en ajoutant un suffixe basé sur l'index pour éviter les conflits
-                    unique_symbol = f"{trade_data['symbol']}_{i}" if broker_credentials.broker_type == 'saxo' else trade_data['symbol']
-                    
-                    # Récupérer ou créer l'Asset sous-jacent avec le symbole unique
-                    asset, _ = Asset.objects.get_or_create(
-                        symbol=unique_symbol,
-                        defaults={
-                            'name': trade_data.get('name', trade_data['symbol']),
-                            'sector': trade_data.get('sector', 'xxxx'),
-                            'industry': trade_data.get('industry', 'xxxx'),
-                            'market_cap': trade_data.get('market_cap', 0.0),
-                            'price_history': trade_data.get('price_history', 'xxxx'),
-                        }
-                    )
                     
                     # Trouver un AllAssets correspondant existant (utiliser le symbole original)
                     original_symbol = trade_data['symbol']

@@ -93,6 +93,10 @@
                         <button type="submit" class="btn btn-primary">
                             <i class="fas fa-paper-plane"></i> Passer l'ordre
                         </button>
+                        
+                        <button type="button" class="btn btn-info ms-2" id="testTelegramBtn">
+                            <i class="fab fa-telegram"></i> Test Telegram
+                        </button>
                     </form>
                 </div>
             </div>
@@ -320,7 +324,36 @@ document.getElementById('order-form').addEventListener('submit', function(e) {
         error: function() {
             resultDiv.innerHTML = "<div class='alert alert-danger'>Erreur lors de l'envoi de l'ordre.</div>";
         }
+            });
     });
-});
+    
+    // Test des notifications Telegram
+    document.getElementById('testTelegramBtn').addEventListener('click', function() {
+        const button = this;
+        const originalText = button.innerHTML;
+        
+        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Test en cours...';
+        button.disabled = true;
+        
+        $.ajax({
+            url: "{% url 'test_telegram' %}",
+            type: "GET",
+            headers: {'X-CSRFToken': getCookie('csrftoken')},
+            success: function(response) {
+                if (response.success) {
+                    alert('✅ ' + response.message);
+                } else {
+                    alert('❌ ' + response.message);
+                }
+            },
+            error: function() {
+                alert('❌ Erreur lors du test Telegram');
+            },
+            complete: function() {
+                button.innerHTML = originalText;
+                button.disabled = false;
+            }
+        });
+    });
 </script>
 {% endblock %} 

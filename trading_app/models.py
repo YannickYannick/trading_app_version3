@@ -1,6 +1,8 @@
 from django.db import models
 from django.contrib.auth.models import User
 from decimal import Decimal
+from django.db.models.signals import post_save, post_delete
+from django.dispatch import receiver
 
 # Choix pour les plateformes
 BROKER_CHOICES = [
@@ -134,6 +136,7 @@ class AssetTradable(models.Model):
     market = models.ForeignKey(Market, on_delete=models.CASCADE)
     
     # Champs additionnels spécifiques à l'AssetTradable
+    quantity = models.DecimalField(max_digits=15, decimal_places=6, default=0, help_text="Quantité totale des positions ouvertes pour cet asset")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
@@ -163,6 +166,29 @@ class AssetTradable(models.Model):
         self.asset_type = asset_type
         self.market = market
         self.save()
+    
+    def update_quantity(self):
+        """Met à jour la quantité totale des positions ouvertes pour cet asset"""
+        from .models import Position
+        total_quantity = Position.objects.filter(
+            asset_tradable=self,
+            status='OPEN'
+        ).aggregate(
+            total=models.Sum('size')
+        )['total'] or 0
+        
+        self.quantity = total_quantity
+        self.save(update_fields=['quantity'])
+        return total_quantity
+    
+    @classmethod
+    def update_quantity_for_asset_tradable(cls, asset_tradable_id):
+        """Met à jour la quantité d'un AssetTradable spécifique"""
+        try:
+            asset_tradable = cls.objects.get(id=asset_tradable_id)
+            return asset_tradable.update_quantity()
+        except cls.DoesNotExist:
+            return 0
     
     @classmethod
     def find_matching_all_asset(cls, symbol, platform):
@@ -318,6 +344,13 @@ class Strategy(models.Model):
     successful_trades = models.IntegerField(default=0)
     total_pnl = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     
+    # Quantité en portefeuille (pré-calculée)
+    portfolio_quantity = models.DecimalField(max_digits=15, decimal_places=6, default=-1, help_text="Quantité totale en portefeuille pour cet asset (pré-calculée)")
+    
+    # Quantités cibles pour la gestion de position
+    target_min_quantity = models.DecimalField(max_digits=15, decimal_places=6, default=0, help_text="Quantité minimale cible à maintenir en portefeuille")
+    target_max_quantity = models.DecimalField(max_digits=15, decimal_places=6, default=0, help_text="Quantité maximale cible à maintenir en portefeuille")
+    
     class Meta:
         unique_together = ['user', 'asset', 'name']  # Un nom unique par utilisateur et asset
         indexes = [
@@ -332,7 +365,7 @@ class Strategy(models.Model):
     def get_algorithm_instance(self):
         """Retourne une instance de l'algorithme correspondant"""
         from .algorithms import AlgorithmFactory
-        return AlgorithmFactory.create_algorithm(self.algorithm_type, self.parameters)
+        return AlgorithmFactory.create_algorithm(self.algorithm_type, self.parameters, self)
     
     def calculate_signals(self, price_data):
         """Calcule les signaux d'achat/vente basés sur l'algorithme"""
@@ -352,7 +385,7 @@ class Strategy(models.Model):
     def get_parameter_display(self):
         """Retourne une représentation lisible des paramètres"""
         if self.algorithm_type == 'threshold':
-            return f"Seuil bas: {self.parameters.get('threshold_low', 'N/A')}, Seuil haut: {self.parameters.get('threshold_high', 'N/A')}"
+            return f"Seuil bas: {self.parameters.get('threshold_low', 'N/A')}, Seuil haut: {self.parameters.get('threshold_high', 'N/A')}, Min: {self.target_min_quantity}, Max: {self.target_max_quantity}"
         elif self.algorithm_type == 'ma_crossover':
             return f"MA1: {self.parameters.get('ma1_period', 'N/A')}, MA2: {self.parameters.get('ma2_period', 'N/A')}"
         elif self.algorithm_type == 'rsi':
@@ -364,6 +397,111 @@ class Strategy(models.Model):
         elif self.algorithm_type == 'grid':
             return f"Min: {self.parameters.get('grid_min', 'N/A')}, Max: {self.parameters.get('grid_max', 'N/A')}, Niveaux: {self.parameters.get('grid_levels', 'N/A')}"
         return "Paramètres non disponibles"
+    
+    def clean(self):
+        """Validation personnalisée du modèle"""
+        super().clean()
+        
+        # Vérifier que target_min_quantity <= target_max_quantity
+        if self.target_min_quantity and self.target_max_quantity:
+            if self.target_min_quantity > self.target_max_quantity:
+                from django.core.exceptions import ValidationError
+                raise ValidationError({
+                    'target_min_quantity': 'La quantité minimale ne peut pas être supérieure à la quantité maximale.',
+                    'target_max_quantity': 'La quantité maximale ne peut pas être inférieure à la quantité minimale.'
+                })
+        
+        # Vérifier que les quantités cibles sont positives
+        if self.target_min_quantity and self.target_min_quantity < 0:
+            from django.core.exceptions import ValidationError
+            raise ValidationError({
+                'target_min_quantity': 'La quantité minimale doit être positive ou nulle.'
+            })
+        
+        if self.target_max_quantity and self.target_max_quantity < 0:
+            from django.core.exceptions import ValidationError
+            raise ValidationError({
+                'target_max_quantity': 'La quantité maximale doit être positive ou nulle.'
+            })
+    
+    def calculate_portfolio_quantity(self):
+        """Calcule la quantité totale en portefeuille pour cet asset"""
+        try:
+            # Normaliser le symbole de l'asset de la stratégie
+            asset_symbol = self.asset.symbol
+            
+            # Extraire le symbole de base (AAPL, GOOGL)
+            base_symbol = asset_symbol.split(':')[0].split('_')[0].upper()
+            
+            # Chercher tous les AssetTradable correspondants (toutes plateformes)
+            # Utiliser une recherche plus flexible pour matcher AAPL avec AAPL:XNAS
+            asset_tradables = AssetTradable.objects.filter(
+                symbol__startswith=base_symbol
+            )
+            
+            if not asset_tradables.exists():
+                self.portfolio_quantity = -1
+                self.save(update_fields=['portfolio_quantity'])
+                return -1
+            
+            # Sommer les quantités de toutes les plateformes
+            total_quantity = sum(float(at.quantity or 0) for at in asset_tradables)
+            
+            # Mettre à jour le champ
+            self.portfolio_quantity = total_quantity
+            self.save(update_fields=['portfolio_quantity'])
+            
+            return total_quantity
+            
+        except Exception as e:
+            print(f"Erreur calcul portfolio pour stratégie {self.name}: {e}")
+            self.portfolio_quantity = -1
+            self.save(update_fields=['portfolio_quantity'])
+            return -1
+    
+    @classmethod
+    def update_all_portfolio_quantities(cls):
+        """Met à jour les quantités de portefeuille pour toutes les stratégies"""
+        updated_count = 0
+        total_strategies = cls.objects.count()
+        
+        for strategy in cls.objects.all():
+            try:
+                strategy.calculate_portfolio_quantity()
+                updated_count += 1
+            except Exception as e:
+                print(f"Erreur mise à jour stratégie {strategy.name}: {e}")
+        
+        return updated_count, total_strategies
+    
+    def calculate_trade_quantity(self, signal):
+        """Calcule la quantité à trader selon le signal et les quantités cibles"""
+        if self.portfolio_quantity == -1:
+            return 0  # Pas de calcul possible
+        
+        current_quantity = float(self.portfolio_quantity)
+        
+        # Récupérer la limite de sécurité depuis les paramètres
+        max_trade_size = float(self.parameters.get('order_size', 1000))
+        
+        if signal == 'BUY':
+            # Acheter pour atteindre target_max_quantity
+            if self.target_max_quantity > 0:
+                quantity_to_buy = float(self.target_max_quantity) - current_quantity
+                # Limiter par la limite de sécurité (order_size)
+                return max(0, min(quantity_to_buy, max_trade_size))
+            else:
+                return 0
+        elif signal == 'SELL':
+            # Vendre pour atteindre target_min_quantity
+            if self.target_min_quantity > 0:
+                quantity_to_sell = current_quantity - float(self.target_min_quantity)
+                # Limiter par la limite de sécurité (order_size)
+                return max(0, min(quantity_to_sell, max_trade_size))
+            else:
+                return 0
+        else:
+            return 0
 
 class StrategyExecution(models.Model):
     """Historique des exécutions de stratégies"""
@@ -512,4 +650,19 @@ class PendingOrder(models.Model):
         self.remaining_quantity = self.original_quantity - self.executed_quantity
         self.broker_data = broker_data
         self.save()
+
+
+# Signaux pour mettre à jour automatiquement les quantités des AssetTradable
+# TEMPORAIREMENT DÉSACTIVÉS car ils causent des problèmes
+# @receiver([post_save, post_delete], sender=Position)
+# def update_asset_tradable_quantity_on_position_change(sender, instance, **kwargs):
+#     """Met à jour la quantité de l'AssetTradable quand une position change"""
+#     if instance.asset_tradable:
+#         instance.asset_tradable.update_quantity()
+
+# @receiver([post_save, post_delete], sender=Trade)
+# def update_asset_tradable_quantity_on_trade_change(sender, instance, **kwargs):
+#     """Met à jour la quantité de l'AssetTradable quand un trade change"""
+#     if instance.asset_tradable:
+#         instance.asset_tradable.update_quantity()
 

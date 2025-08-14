@@ -33,7 +33,11 @@ class TradingAlgorithm(ABC):
         return np.array([float(candle.get('volume', 0)) for candle in price_data])
 
 class ThresholdAlgorithm(TradingAlgorithm):
-    """Algorithme de seuils : Acheter en dessous de X1, vendre au-dessus de X2"""
+    """Algorithme de seuils avec gestion de position cible : Acheter en dessous de X1, vendre au-dessus de X2"""
+    
+    def __init__(self, parameters: Dict, strategy=None):
+        super().__init__(parameters)
+        self.strategy = strategy  # Référence vers la stratégie pour accéder aux quantités cibles
     
     def calculate_signals(self, price_data: List[Dict]) -> Dict:
         if len(price_data) < 1:
@@ -43,20 +47,63 @@ class ThresholdAlgorithm(TradingAlgorithm):
         threshold_low = self.parameters.get('threshold_low', 0)
         threshold_high = self.parameters.get('threshold_high', float('inf'))
         
+        # Récupérer les quantités cibles si la stratégie est disponible
+        target_min_quantity = getattr(self.strategy, 'target_min_quantity', 0) if self.strategy else 0
+        target_max_quantity = getattr(self.strategy, 'target_max_quantity', 0) if self.strategy else 0
+        portfolio_quantity = getattr(self.strategy, 'portfolio_quantity', -1) if self.strategy else -1
+        
+        # Logique de gestion des positions cibles avec calcul automatique des quantités
         if current_price <= threshold_low:
-            strength = min(1.0, (threshold_low - current_price) / threshold_low * 2)
-            return {
-                'signal': 'BUY',
-                'strength': strength,
-                'reason': f'Prix ({current_price}) en dessous du seuil bas ({threshold_low})'
-            }
+            # Signal d'achat si on peut augmenter la position
+            if target_max_quantity > 0 and portfolio_quantity >= 0:
+                if portfolio_quantity < target_max_quantity:
+                    strength = min(1.0, (threshold_low - current_price) / threshold_low * 2)
+                    return {
+                        'signal': 'BUY',
+                        'strength': strength,
+                        'reason': f'Prix ({current_price}) en dessous du seuil bas ({threshold_low}) - Acheter pour atteindre {target_max_quantity}',
+                        'auto_quantity': True  # Indique que la quantité sera calculée automatiquement
+                    }
+                else:
+                    return {
+                        'signal': 'HOLD',
+                        'strength': 0.0,
+                        'reason': f'Position déjà au maximum ({portfolio_quantity}/{target_max_quantity})'
+                    }
+            else:
+                # Comportement classique si pas de quantités cibles
+                strength = min(1.0, (threshold_low - current_price) / threshold_low * 2)
+                return {
+                    'signal': 'BUY',
+                    'strength': strength,
+                    'reason': f'Prix ({current_price}) en dessous du seuil bas ({threshold_low})'
+                }
+        
         elif current_price >= threshold_high:
-            strength = min(1.0, (current_price - threshold_high) / threshold_high * 2)
-            return {
-                'signal': 'SELL',
-                'strength': strength,
-                'reason': f'Prix ({current_price}) au-dessus du seuil haut ({threshold_high})'
-            }
+            # Signal de vente si on peut réduire la position
+            if target_min_quantity > 0 and portfolio_quantity >= 0:
+                if portfolio_quantity > target_min_quantity:
+                    strength = min(1.0, (current_price - threshold_high) / threshold_high * 2)
+                    return {
+                        'signal': 'SELL',
+                        'strength': strength,
+                        'reason': f'Prix ({current_price}) au-dessus du seuil haut ({threshold_high}) - Vendre pour atteindre {target_min_quantity}',
+                        'auto_quantity': True  # Indique que la quantité sera calculée automatiquement
+                    }
+                else:
+                    return {
+                        'signal': 'HOLD',
+                        'strength': 0.0,
+                        'reason': f'Position déjà au minimum ({portfolio_quantity}/{target_min_quantity})'
+                    }
+            else:
+                # Comportement classique si pas de quantités cibles
+                strength = min(1.0, (current_price - threshold_high) / threshold_high * 2)
+                return {
+                    'signal': 'SELL',
+                    'strength': strength,
+                    'reason': f'Prix ({current_price}) au-dessus du seuil haut ({threshold_high})'
+                }
         else:
             return {
                 'signal': 'HOLD',
@@ -384,13 +431,18 @@ class AlgorithmFactory:
     }
     
     @classmethod
-    def create_algorithm(cls, algorithm_type: str, parameters: Dict) -> TradingAlgorithm:
+    def create_algorithm(cls, algorithm_type: str, parameters: Dict, strategy=None) -> TradingAlgorithm:
         """Crée une instance de l'algorithme spécifié"""
         if algorithm_type not in cls._algorithms:
             raise ValueError(f'Algorithme non supporté: {algorithm_type}')
         
         algorithm_class = cls._algorithms[algorithm_type]
-        return algorithm_class(parameters)
+        
+        # Pour l'algorithme Threshold, passer la stratégie pour accéder aux quantités cibles
+        if algorithm_type == 'threshold':
+            return algorithm_class(parameters, strategy)
+        else:
+            return algorithm_class(parameters)
     
     @classmethod
     def get_algorithm_parameters(cls, algorithm_type: str) -> Dict:

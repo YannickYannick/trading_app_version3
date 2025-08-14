@@ -1,852 +1,361 @@
 {% extends "base.html" %}
-{% block title %}Trades Tabulator{% endblock %}
+{% block title %}Trades - Tableau imbriqué{% endblock %}
 {% block content %}
-<h1>Trades - Tableau dynamique</h1>
+<div class="container-fluid">
+    <h1 class="mb-4">
+        <i class="fas fa-chart-line"></i> Trades - Tableau imbriqué par symbole
+    </h1>
 
-<!-- Bouton pour configurer les colonnes -->
-<div class="mb-3">
-    <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#columnSelectorModal">
-        <i class="fas fa-cog"></i> Configurer les colonnes
-    </button>
-    
-    <!-- Boutons pour modes Binance -->
-    <div class="btn-group ms-2" role="group">
-        <button type="button" class="btn btn-outline-primary" id="binanceAuto">
-            <i class="fas fa-magic"></i> Binance Auto
-        </button>
-        <button type="button" class="btn btn-outline-success" id="binancePredefined">
-            <i class="fas fa-list"></i> Binance Prédéfini
-        </button>
-        <button type="button" class="btn btn-outline-warning" id="binanceAll">
-            <i class="fas fa-database"></i> Binance Tout
-        </button>
-    </div>
-    
-    <!-- Boutons pour synchronisation Saxo -->
-    {% if saxo_brokers %}
-    <div class="btn-group ms-2" role="group">
-        <span class="btn btn-outline-info disabled">
-            <i class="fas fa-university"></i> Saxo Trades
-        </span>
-        {% for broker in saxo_brokers %}
-        <button type="button" class="btn btn-outline-info saxo-sync-btn" data-broker-id="{{ broker.id }}" data-broker-name="{{ broker.name }}">
-            <i class="fas fa-sync"></i> {{ broker.name }}
-        </button>
-        {% endfor %}
-    </div>
-    {% endif %}
-    
-    <!-- Boutons pour gestion globale des trades -->
-    <div class="btn-group ms-2" role="group">
-        <span class="btn btn-outline-warning disabled">
-            <i class="fas fa-cogs"></i> Gestion Globale
-        </span>
-        <button type="button" class="btn btn-outline-warning" id="updateAllTrades">
-            <i class="fas fa-sync-alt"></i> Mettre à jour tous les trades
-        </button>
-        <button type="button" class="btn btn-outline-danger" id="deleteAllTrades">
-            <i class="fas fa-trash"></i> Supprimer tous les trades
-        </button>
-    </div>
-</div>
-
-<div id="trade-table"></div>
-
-<!-- Section Graphique des Trades -->
-<div class="mt-4">
-    <div class="card">
+    <!-- Filtres -->
+    <div class="card mb-4">
         <div class="card-header">
             <h5 class="mb-0">
-                <i class="fas fa-chart-line"></i> Graphique des Trades par Instrument
+                <i class="fas fa-filter"></i> Filtres
             </h5>
         </div>
         <div class="card-body">
-            <!-- Sélecteur d'instrument -->
-            <div class="row mb-3">
-                <div class="col-md-4">
-                    <label for="instrumentSelector" class="form-label">Sélectionner un instrument :</label>
-                    <select class="form-select" id="instrumentSelector">
-                        <option value="">Choisir un instrument...</option>
+            <form id="filtersForm" class="row g-3">
+                <div class="col-md-3">
+                    <label for="start_date" class="form-label">Date début</label>
+                    <input type="date" class="form-control" id="start_date" name="start_date" 
+                           value="{{ start_date|default:'' }}">
+                </div>
+                <div class="col-md-3">
+                    <label for="end_date" class="form-label">Date fin</label>
+                    <input type="date" class="form-control" id="end_date" name="end_date" 
+                           value="{{ end_date|default:'' }}">
+                </div>
+                <div class="col-md-3">
+                    <label for="broker_filter" class="form-label">Broker</label>
+                    <select class="form-select" id="broker_filter" name="broker_filter">
+                        <option value="">Tous les brokers</option>
+                        <option value="saxo" {% if broker_filter == 'saxo' %}selected{% endif %}>Saxo Bank</option>
+                        <option value="binance" {% if broker_filter == 'binance' %}selected{% endif %}>Binance</option>
                     </select>
                 </div>
-                <div class="col-md-4">
-                    <label for="periodSelector" class="form-label">Période :</label>
-                    <select class="form-select" id="periodSelector">
-                        <option value="all">Tous les trades</option>
-                        <option value="30">30 derniers jours</option>
-                        <option value="7">7 derniers jours</option>
-                        <option value="1">Dernières 24h</option>
-                    </select>
+                <div class="col-md-3 d-flex align-items-end">
+                    <button type="submit" class="btn btn-primary me-2">
+                        <i class="fas fa-search"></i> Filtrer
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary" id="resetFilters">
+                        <i class="fas fa-undo"></i> Réinitialiser
+                    </button>
                 </div>
-                <div class="col-md-4">
-                    <label for="chartTypeSelector" class="form-label">Type de graphique :</label>
-                    <select class="form-select" id="chartTypeSelector">
-                        <option value="candlestick">Chandeliers</option>
-                        <option value="line">Ligne</option>
-                    </select>
-                </div>
-            </div>
-            
-            <!-- Statistiques -->
-            <div class="row mb-3" id="tradeStats" style="display: none;">
-                <div class="col-md-3">
-                    <div class="card bg-light">
-                        <div class="card-body text-center">
-                            <h6 class="card-title">Total Trades</h6>
-                            <h4 id="totalTrades">0</h4>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-3">
-                    <div class="card bg-light">
-                        <div class="card-body text-center">
-                            <h6 class="card-title">P&L Total</h6>
-                            <h4 id="totalPnL">0.00</h4>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-3">
-                    <div class="card bg-light">
-                        <div class="card-body text-center">
-                            <h6 class="card-title">Volume Total</h6>
-                            <h4 id="totalVolume">0.00</h4>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-3">
-                    <div class="card bg-light">
-                        <div class="card-body text-center">
-                            <h6 class="card-title">Prix Moyen</h6>
-                            <h4 id="avgPrice">0.00</h4>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Conteneur du graphique -->
-            <div id="tradingChart" style="height: 500px; width: 100%;"></div>
+            </form>
         </div>
     </div>
-</div>
 
-<!-- Modal pour sélectionner les colonnes -->
-<div class="modal fade" id="columnSelectorModal" tabindex="-1" aria-labelledby="columnSelectorModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="columnSelectorModalLabel">
-                    <i class="fas fa-columns"></i> Sélectionner les colonnes à afficher
-                </h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <div class="row">
-                    <div class="col-md-6">
-                        <h6>Colonnes disponibles :</h6>
-                        <div id="availableColumns" class="border p-3" style="height: 300px; overflow-y: auto;">
-                            <!-- Les colonnes disponibles seront ajoutées ici dynamiquement -->
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <h6>Colonnes affichées :</h6>
-                        <div id="selectedColumns" class="border p-3" style="height: 300px; overflow-y: auto;">
-                            <!-- Les colonnes sélectionnées seront ajoutées ici dynamiquement -->
-                        </div>
-                    </div>
+    <!-- Tableau des trades -->
+    <div class="card">
+        <div class="card-header">
+            <h5 class="mb-0">
+                <i class="fas fa-table"></i> Trades groupés par symbole
+            </h5>
+        </div>
+        <div class="card-body">
+            <div id="trades-table"></div>
+        </div>
+    </div>
+
+    <!-- Statistiques globales -->
+    <div class="row mt-4">
+        <div class="col-md-3">
+            <div class="card bg-primary text-white">
+                <div class="card-body text-center">
+                    <h6 class="card-title">Total Symboles</h6>
+                    <h4 id="totalSymbols">0</h4>
                 </div>
-                <div class="row mt-3">
-                    <div class="col-12 text-center">
-                        <button type="button" class="btn btn-primary" id="applyColumns">
-                            <i class="fas fa-check"></i> Appliquer
-                        </button>
-                        <button type="button" class="btn btn-secondary" id="resetColumns">
-                            <i class="fas fa-undo"></i> Réinitialiser
-                        </button>
-                    </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-success text-white">
+                <div class="card-body text-center">
+                    <h6 class="card-title">Total Trades</h6>
+                    <h4 id="totalTrades">0</h4>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-info text-white">
+                <div class="card-body text-center">
+                    <h6 class="card-title">Volume Net Total</h6>
+                    <h4 id="totalVolume">€0</h4>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-warning text-white">
+                <div class="card-body text-center">
+                    <h6 class="card-title">P&L Total</h6>
+                    <h4 id="totalPnL">€0</h4>
                 </div>
             </div>
         </div>
     </div>
 </div>
 
-<link href="https://cdnjs.cloudflare.com/ajax/libs/tabulator/5.0.3/css/tabulator.min.css" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/tabulator/5.0.3/js/tabulator.min.js"></script>
-<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-<!-- TradingView Lightweight Charts -->
-<script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+<!-- Scripts -->
+<script src="https://cdn.jsdelivr.net/npm/tabulator-tables@5.5.2/dist/js/tabulator.min.js"></script>
+<link href="https://cdn.jsdelivr.net/npm/tabulator-tables@5.5.2/dist/css/tabulator.min.css" rel="stylesheet">
 
 <script>
-    var tabledata = JSON.parse('{{ data_trades|default:"[]"|escapejs }}');
-    var chart = null;
-    var candlestickSeries = null;
-    var lineSeries = null;
-    var tradeMarkers = [];
+document.addEventListener('DOMContentLoaded', function() {
+    // Données des trades depuis Django
+    const tradesData = {{ trades_data|safe }};
     
-    // Définition de toutes les colonnes disponibles
-    var allColumns = [
-        { title: "Broker", field: "broker_name", headerFilter: "input" },
-        { title: "Environnement", field: "environment", headerFilter: "select", headerFilterParams: { values: ["live", "simulation"] } },
-        { title: "Instrument", field: "symbol", headerFilter: "input" },
-        { title: "Type", field: "type", headerFilter: "input" },
-        { title: "Direction", field: "direction", headerFilter: "select", headerFilterParams: { values: ["Long", "Short"] } },
-        { title: "Taille", field: "size", headerFilter: "input" },
-        { title: "Prix d'ouverture", field: "opening_price", headerFilter: "input", formatter: function(cell) {
-            var value = cell.getValue();
-            if (value && !isNaN(value)) {
-                return parseFloat(value).toFixed(2);
-            }
-            return value;
-        }},
-        { title: "Prix de clôture", field: "closing_price", headerFilter: "input", formatter: function(cell) {
-            var value = cell.getValue();
-            if (value && !isNaN(value)) {
-                return parseFloat(value).toFixed(2);
-            }
-            return value;
-        }},
-        { title: "P&L", field: "profit_loss", headerFilter: "input", formatter: function(cell) {
-            var value = cell.getValue();
-            if (value && !isNaN(value)) {
-                value = parseFloat(value);
-                if (value > 0) {
-                    cell.getElement().style.color = "green";
-                } else if (value < 0) {
-                    cell.getElement().style.color = "red";
-                }
-                return value.toFixed(2);
-            }
-            return value;
-        }},
-        { title: "Ratio P&L", field: "profit_loss_ratio", headerFilter: "input", formatter: function(cell) {
-            var value = cell.getValue();
-            if (value && !isNaN(value)) {
-                value = parseFloat(value) * 100;
-                if (value > 0) {
-                    cell.getElement().style.color = "green";
-                } else if (value < 0) {
-                    cell.getElement().style.color = "red";
-                }
-                return value.toFixed(2) + "%";
-            }
-            return value;
-        }},
-        { title: "Date ouverture", field: "opening_date", headerFilter: "input" },
-        { title: "Date clôture", field: "timestamp", headerFilter: "input" }
-    ];
+    console.log('Données reçues:', tradesData);
     
-    // Colonnes par défaut (les plus importantes)
-    var defaultColumns = ["broker_name", "symbol", "direction", "size", "profit_loss", "timestamp"];
+    // Préparer les données pour affichage (groupes + trades individuels)
+    const allData = [];
     
-    // Fonction pour sauvegarder les colonnes sélectionnées
-    function saveSelectedColumns(columns) {
-        localStorage.setItem('trade_tabulator_selected_columns', JSON.stringify(columns));
-    }
-    
-    // Fonction pour charger les colonnes sélectionnées
-    function loadSelectedColumns() {
-        var saved = localStorage.getItem('trade_tabulator_selected_columns');
-        if (saved) {
-            try {
-                return JSON.parse(saved);
-            } catch (e) {
-                console.log('Erreur lors du chargement des colonnes sauvegardées:', e);
-            }
-        }
-        return [...defaultColumns];
-    }
-    
-    // Colonnes actuellement sélectionnées (chargées depuis localStorage)
-    var selectedColumns = loadSelectedColumns();
-    
-    // Fonction pour obtenir les colonnes à afficher
-    function getVisibleColumns() {
-        return allColumns.filter(col => selectedColumns.includes(col.field));
-    }
-    
-    // Fonction pour initialiser le sélecteur de colonnes
-    function initColumnSelector() {
-        const availableDiv = document.getElementById('availableColumns');
-        const selectedDiv = document.getElementById('selectedColumns');
-        
-        // Vider les conteneurs
-        availableDiv.innerHTML = '';
-        selectedDiv.innerHTML = '';
-        
-        // Ajouter toutes les colonnes disponibles
-        allColumns.forEach(col => {
-            const isSelected = selectedColumns.includes(col.field);
-            const container = isSelected ? selectedDiv : availableDiv;
-            
-            const columnItem = document.createElement('div');
-            columnItem.className = 'column-item mb-2 p-2 border rounded cursor-pointer';
-            columnItem.style.cursor = 'pointer';
-            columnItem.innerHTML = `
-                <div class="d-flex justify-content-between align-items-center">
-                    <span>${col.title}</span>
-                    <i class="fas fa-${isSelected ? 'minus' : 'plus'} text-${isSelected ? 'danger' : 'success'}"></i>
-                </div>
-            `;
-            
-            columnItem.addEventListener('click', function() {
-                if (isSelected) {
-                    // Retirer de la sélection
-                    selectedColumns = selectedColumns.filter(field => field !== col.field);
-                } else {
-                    // Ajouter à la sélection
-                    selectedColumns.push(col.field);
-                }
-                initColumnSelector();
-            });
-            
-            container.appendChild(columnItem);
+    tradesData.forEach(group => {
+        // Ajouter la ligne de groupe
+        allData.push({
+            ...group,
+            is_group: true,
+            display_symbol: group.symbol,
+            display_trades: group.trade_count,
+            display_volume: group.net_volume,
+            display_quantity: group.net_quantity,
+            display_pnl: group.pnl,
+            display_last_trade: group.last_trade,
+            display_platforms: group.platforms
         });
-    }
+        
+        // Ajouter tous les trades individuels
+        if (group.children) {
+            group.children.forEach(trade => {
+                allData.push({
+                    ...trade,
+                    is_group: false,
+                    display_symbol: `  ${trade.symbol}`,
+                    display_trades: '-',
+                    display_volume: trade.volume,
+                    display_quantity: trade.size,
+                    display_pnl: '-',
+                    display_last_trade: trade.timestamp,
+                    display_platforms: trade.platform
+                });
+            });
+        }
+    });
     
-    // Créer la table avec les colonnes chargées
-    var table = new Tabulator("#trade-table", {
-        height: "400px",
+    console.log('Données complètes:', allData);
+    
+    // Configuration du tableau Tabulator avec toutes les données
+    const table = new Tabulator("#trades-table", {
+        data: allData,
         layout: "fitDataFill",
-        reactiveData: true,
-        data: tabledata,
-        columns: getVisibleColumns()
-    });
-    
-    // Initialiser le sélecteur de colonnes après la création de la table
-    initColumnSelector();
-    
-    // Appliquer les changements de colonnes
-    document.getElementById('applyColumns').addEventListener('click', function() {
-        table.setColumns(getVisibleColumns());
-        saveSelectedColumns(selectedColumns);
-        $('#columnSelectorModal').modal('hide');
-        // Forcer le redessinage de la table
-        table.redraw(true);
-    });
-    
-    // Réinitialiser les colonnes
-    document.getElementById('resetColumns').addEventListener('click', function() {
-        selectedColumns = [...defaultColumns];
-        saveSelectedColumns(selectedColumns);
-        table.setColumns(getVisibleColumns());
-        initColumnSelector();
-        // Forcer le redessinage de la table
-        table.redraw(true);
-    });
-    
-    // Réinitialiser le sélecteur quand le modal s'ouvre
-    $('#columnSelectorModal').on('show.bs.modal', function () {
-        initColumnSelector();
-    });
-    
-    // Initialiser le sélecteur d'instruments
-    function initInstrumentSelector() {
-        const selector = document.getElementById('instrumentSelector');
-        const instruments = [...new Set(tabledata.map(trade => trade.symbol).filter(symbol => symbol && symbol !== 'N/A'))];
-        
-        instruments.forEach(instrument => {
-            const option = document.createElement('option');
-            option.value = instrument;
-            option.textContent = instrument;
-            selector.appendChild(option);
-        });
-    }
-    
-    // Initialiser le graphique TradingView
-    function initChart() {
-        const chartContainer = document.getElementById('tradingChart');
-        
-        if (chart) {
-            chart.remove();
-        }
-        
-        chart = LightweightCharts.createChart(chartContainer, {
-            width: chartContainer.clientWidth,
-            height: chartContainer.clientHeight,
-            layout: {
-                backgroundColor: '#ffffff',
-                textColor: '#333',
-            },
-            grid: {
-                vertLines: {
-                    color: '#f0f0f0',
-                },
-                horzLines: {
-                    color: '#f0f0f0',
-                },
-            },
-            crosshair: {
-                mode: LightweightCharts.CrosshairMode.Normal,
-            },
-            rightPriceScale: {
-                borderColor: '#cccccc',
-            },
-            timeScale: {
-                borderColor: '#cccccc',
-                timeVisible: true,
-                secondsVisible: false,
-            },
-        });
-        
-        // Créer les séries
-        candlestickSeries = chart.addCandlestickSeries({
-            upColor: '#26a69a',
-            downColor: '#ef5350',
-            borderVisible: false,
-            wickUpColor: '#26a69a',
-            wickDownColor: '#ef5350',
-        });
-        
-        lineSeries = chart.addLineSeries({
-            color: '#2196F3',
-            lineWidth: 2,
-        });
-        
-        // Gérer le redimensionnement
-        window.addEventListener('resize', () => {
-            chart.applyOptions({
-                width: chartContainer.clientWidth,
-                height: chartContainer.clientHeight,
-            });
-        });
-    }
-    
-    // Charger les données de prix pour un instrument
-    function loadPriceData(symbol) {
-        return new Promise((resolve, reject) => {
-            $.ajax({
-                url: `/trades/chart-data/${encodeURIComponent(symbol)}/`,
-                type: 'GET',
-                success: function(response) {
-                    if (response.success) {
-                        resolve(response.data);
+        pagination: true,
+        paginationSize: 50,
+        paginationSizeSelector: [20, 50, 100, 200],
+        columns: [
+            // Symbole
+            {
+                title: "Symbole",
+                field: "display_symbol",
+                headerFilter: "input",
+                headerFilterPlaceholder: "Rechercher...",
+                width: 150,
+                formatter: function(cell) {
+                    const row = cell.getRow();
+                    const data = row.getData();
+                    if (data.is_group) {
+                        return `<strong class="text-primary">${cell.getValue()}</strong>`;
                     } else {
-                        console.warn('Données de prix non disponibles, utilisation de données simulées');
-                        // Fallback vers des données simulées
-                        resolve(generateSimulatedData(symbol));
+                        return `<span class="text-muted">${cell.getValue()}</span>`;
                     }
-                },
-                error: function(xhr) {
-                    console.warn('Erreur récupération données prix, utilisation de données simulées');
-                    // Fallback vers des données simulées
-                    resolve(generateSimulatedData(symbol));
                 }
-            });
-        });
-    }
-    
-    // Générer des données simulées en cas d'erreur
-    function generateSimulatedData(symbol) {
-        const now = new Date();
-        const data = [];
-        
-        for (let i = 30; i >= 0; i--) {
-            const time = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
-            const basePrice = 100 + Math.random() * 50;
-            const open = basePrice;
-            const high = basePrice + Math.random() * 10;
-            const low = basePrice - Math.random() * 10;
-            const close = basePrice + (Math.random() - 0.5) * 10;
-            
-            data.push({
-                time: Math.floor(time.getTime() / 1000),
-                open: open,
-                high: high,
-                low: low,
-                close: close,
-            });
+            },
+            // Nombre de trades
+            {
+                title: "Trades",
+                field: "display_trades",
+                headerSort: true,
+                width: 80,
+                formatter: function(cell) {
+                    const row = cell.getRow();
+                    const data = row.getData();
+                    if (data.is_group) {
+                        return `<span class="badge bg-primary">${cell.getValue()}</span>`;
+                    } else {
+                        return '-';
+                    }
+                }
+            },
+            // Volume
+            {
+                title: "Volume",
+                field: "display_volume",
+                headerSort: true,
+                width: 120,
+                formatter: function(cell) {
+                    const value = cell.getValue();
+                    if (value === '-') return '-';
+                    const color = value >= 0 ? 'success' : 'danger';
+                    const sign = value >= 0 ? '+' : '';
+                    return `<span class="text-${color}">${sign}€${Math.abs(value).toFixed(2)}</span>`;
+                }
+            },
+            // Quantité
+            {
+                title: "Quantité",
+                field: "display_quantity",
+                headerSort: true,
+                width: 120,
+                formatter: function(cell) {
+                    const value = cell.getValue();
+                    if (value === '-') return '-';
+                    const color = value >= 0 ? 'success' : 'danger';
+                    const sign = value >= 0 ? '+' : '';
+                    return `<span class="text-${color}">${sign}${Math.abs(value).toFixed(4)}</span>`;
+                }
+            },
+            // P&L
+            {
+                title: "P&L",
+                field: "display_pnl",
+                headerSort: true,
+                width: 100,
+                formatter: function(cell) {
+                    const value = cell.getValue();
+                    if (value === '-') return '-';
+                    const color = value >= 0 ? 'success' : 'danger';
+                    const sign = value >= 0 ? '+' : '';
+                    return `<span class="text-${color}">${sign}€${Math.abs(value).toFixed(2)}</span>`;
+                }
+            },
+            // Dernier trade
+            {
+                title: "Timestamp",
+                field: "display_last_trade",
+                headerSort: true,
+                width: 150,
+                formatter: function(cell) {
+                    const value = cell.getValue();
+                    if (!value || value === '-') return '-';
+                    return new Date(value).toLocaleString('fr-FR');
+                }
+            },
+            // Plateformes
+            {
+                title: "Plateforme",
+                field: "display_platforms",
+                width: 120,
+                formatter: function(cell) {
+                    const value = cell.getValue();
+                    if (!value) return '-';
+                    if (typeof value === 'string' && value.includes(',')) {
+                        // Groupe avec plusieurs plateformes
+                        const platforms = value.split(', ');
+                        return platforms.map(p => `<span class="badge bg-secondary me-1">${p}</span>`).join('');
+                    } else {
+                        // Trade individuel
+                        return `<span class="badge bg-info">${value}</span>`;
+                    }
+                }
+            },
+            // Side (pour les trades individuels)
+            {
+                title: "Side",
+                field: "side",
+                width: 80,
+                formatter: function(cell) {
+                    const row = cell.getRow();
+                    const data = row.getData();
+                    if (data.is_group) {
+                        return '-';
+                    } else {
+                        const side = cell.getValue();
+                        const color = side === 'BUY' ? 'success' : 'danger';
+                        return `<span class="badge bg-${color}">${side}</span>`;
+                    }
+                }
+            },
+            // Prix (pour les trades individuels)
+            {
+                title: "Prix",
+                field: "price",
+                width: 100,
+                formatter: function(cell) {
+                    const row = cell.getRow();
+                    const data = row.getData();
+                    if (data.is_group) {
+                        return '-';
+                    } else {
+                        const price = cell.getValue();
+                        return price ? `€${price}` : '-';
+                    }
+                }
+            }
+        ],
+        // Style des lignes
+        rowFormatter: function(row) {
+            const data = row.getData();
+            if (data.is_group) {
+                row.getElement().style.backgroundColor = "#e3f2fd";
+                row.getElement().style.fontWeight = "bold";
+                row.getElement().style.borderTop = "2px solid #2196f3";
+            } else {
+                row.getElement().style.backgroundColor = "#fafafa";
+                row.getElement().style.fontWeight = "normal";
+            }
         }
-        
-        return data;
-    }
+    });
     
-    // Afficher les trades sur le graphique
-    async function displayTradesOnChart(symbol, period) {
-        if (!chart) return;
-        
-        // Filtrer les trades pour cet instrument et cette période
-        let filteredTrades = tabledata.filter(trade => trade.symbol === symbol);
-        
-        if (period !== 'all') {
-            const cutoffDate = new Date();
-            cutoffDate.setDate(cutoffDate.getDate() - parseInt(period));
-            filteredTrades = filteredTrades.filter(trade => {
-                const tradeDate = new Date(trade.timestamp);
-                return tradeDate >= cutoffDate;
-            });
-        }
-        
-        // Charger les données de prix
-        const priceData = await loadPriceData(symbol);
-        
-        // Afficher les données selon le type de graphique
-        const chartType = document.getElementById('chartTypeSelector').value;
-        
-        if (chartType === 'candlestick') {
-            candlestickSeries.setData(priceData);
-            lineSeries.setData([]);
-        } else {
-            const lineData = priceData.map(candle => ({
-                time: candle.time,
-                value: candle.close,
-            }));
-            lineSeries.setData(lineData);
-            candlestickSeries.setData([]);
-        }
-        
-        // Ajouter les marqueurs de trades
-        clearTradeMarkers();
-        
-        filteredTrades.forEach(trade => {
-            const tradeTime = Math.floor(new Date(trade.timestamp).getTime() / 1000);
-            const price = parseFloat(trade.opening_price);
-            
-            // Trouver le point le plus proche dans les données de prix
-            const closestPrice = priceData.reduce((prev, curr) => {
-                return Math.abs(curr.time - tradeTime) < Math.abs(prev.time - tradeTime) ? curr : prev;
-            });
-            
-            const marker = chart.addCandlestickSeries({
-                lastValueVisible: false,
-                priceLineVisible: false,
-            });
-            
-            const markerData = [{
-                time: closestPrice.time,
-                open: price,
-                high: price,
-                low: price,
-                close: price,
-            }];
-            
-            marker.setData(markerData);
-            
-            // Ajouter une annotation
-            const color = trade.direction === 'BUY' ? '#26a69a' : '#ef5350';
-            const shape = trade.direction === 'BUY' ? 'arrowUp' : 'arrowDown';
-            
-            chart.addCandlestickSeries({
-                lastValueVisible: false,
-                priceLineVisible: false,
-                upColor: color,
-                downColor: color,
-            }).setData([{
-                time: closestPrice.time,
-                open: price,
-                high: price + 2,
-                low: price - 2,
-                close: price,
-            }]);
-            
-            tradeMarkers.push(marker);
+    // Mise à jour des statistiques
+    function updateStats() {
+        const data = table.getData();
+        let totalSymbols = 0;
+        let totalTrades = 0;
+        let totalVolume = 0;
+        let totalPnL = 0;
+
+        data.forEach(row => {
+            if (row.is_group) {
+                totalSymbols++;
+                totalTrades += row.trade_count;
+                totalVolume += Math.abs(row.net_volume);
+                totalPnL += row.pnl;
+            }
         });
-        
-        // Calculer et afficher les statistiques
-        calculateAndDisplayStats(filteredTrades);
-        
-        // Afficher les statistiques
-        document.getElementById('tradeStats').style.display = 'block';
-    }
-    
-    // Effacer les marqueurs de trades
-    function clearTradeMarkers() {
-        tradeMarkers.forEach(marker => {
-            chart.removeSeries(marker);
-        });
-        tradeMarkers = [];
-    }
-    
-    // Calculer et afficher les statistiques
-    function calculateAndDisplayStats(trades) {
-        const totalTrades = trades.length;
-        const totalPnL = trades.reduce((sum, trade) => sum + (parseFloat(trade.profit_loss) || 0), 0);
-        const totalVolume = trades.reduce((sum, trade) => sum + (parseFloat(trade.size) || 0), 0);
-        const avgPrice = trades.reduce((sum, trade) => sum + (parseFloat(trade.opening_price) || 0), 0) / totalTrades;
-        
+
+        document.getElementById('totalSymbols').textContent = totalSymbols;
         document.getElementById('totalTrades').textContent = totalTrades;
-        document.getElementById('totalPnL').textContent = totalPnL.toFixed(2);
-        document.getElementById('totalPnL').style.color = totalPnL >= 0 ? 'green' : 'red';
-        document.getElementById('totalVolume').textContent = totalVolume.toFixed(2);
-        document.getElementById('avgPrice').textContent = avgPrice.toFixed(2);
+        document.getElementById('totalVolume').textContent = `€${totalVolume.toFixed(2)}`;
+        document.getElementById('totalPnL').textContent = `€${totalPnL.toFixed(2)}`;
     }
-    
-    // Événements pour le graphique
-    document.getElementById('instrumentSelector').addEventListener('change', async function() {
-        const symbol = this.value;
-        const period = document.getElementById('periodSelector').value;
+
+    // Gestion des filtres
+    document.getElementById('filtersForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        const formData = new FormData(this);
+        const params = new URLSearchParams();
         
-        if (symbol) {
-            await displayTradesOnChart(symbol, period);
-        } else {
-            // Effacer le graphique
-            if (chart) {
-                candlestickSeries.setData([]);
-                lineSeries.setData([]);
-                clearTradeMarkers();
-                document.getElementById('tradeStats').style.display = 'none';
-            }
+        for (let [key, value] of formData.entries()) {
+            if (value) params.append(key, value);
         }
-    });
-    
-    document.getElementById('periodSelector').addEventListener('change', async function() {
-        const symbol = document.getElementById('instrumentSelector').value;
-        const period = this.value;
         
-        if (symbol) {
-            await displayTradesOnChart(symbol, period);
-        }
+        window.location.href = `${window.location.pathname}?${params.toString()}`;
     });
-    
-    document.getElementById('chartTypeSelector').addEventListener('change', async function() {
-        const symbol = document.getElementById('instrumentSelector').value;
-        const period = document.getElementById('periodSelector').value;
-        
-        if (symbol) {
-            await displayTradesOnChart(symbol, period);
-        }
+
+    // Réinitialisation des filtres
+    document.getElementById('resetFilters').addEventListener('click', function() {
+        document.getElementById('start_date').value = '';
+        document.getElementById('end_date').value = '';
+        document.getElementById('broker_filter').value = '';
+        window.location.href = window.location.pathname;
     });
-    
-    // Initialiser le graphique et le sélecteur d'instruments
-    document.addEventListener('DOMContentLoaded', function() {
-        initChart();
-        initInstrumentSelector();
-    });
-    
-    function buttonFormatter(cell) {
-        var button = document.createElement("button");
-        button.textContent = "Save !";
-        button.addEventListener("click", function() {
-            var rowData = cell.getRow().getData();
-            const csrftoken = getCookie('csrftoken');
-            $.ajax({
-                url: '/trades/save/',
-                type: 'POST',
-                data: rowData,
-                headers: {'X-CSRFToken': csrftoken },
-                success: function(response) {
-                    alert("Enregistré !");
-                },
-                error: function(xhr) {
-                    console.log("Erreur lors de l'enregistrement :", xhr.responseText);
-                    alert("Erreur lors de l'enregistrement !\n" + xhr.responseText);
-                }
-            });
-        });
-        return button;
-    }
-    
-    function getCookie(name) {
-        let cookieValue = null;
-        if (document.cookie && document.cookie !== '') {
-            const cookies = document.cookie.split(';');
-            for (let i = 0; i < cookies.length; i++) {
-                const cookie = cookies[i].trim();
-                if (cookie.substring(0, name.length + 1) === (name + '=')) {
-                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-                    break;
-                }
-            }
-        }
-        return cookieValue;
-    }
-    
-    // Gestion des boutons Binance
-    document.getElementById("binanceAuto").addEventListener("click", function(){
-        loadBinanceTrades("auto");
-    });
-    
-    document.getElementById("binancePredefined").addEventListener("click", function(){
-        loadBinanceTrades("predefined");
-    });
-    
-    document.getElementById("binanceAll").addEventListener("click", function(){
-        loadBinanceTrades("all");
-    });
-    
-    // Gestion des boutons de gestion globale
-    document.getElementById("updateAllTrades").addEventListener("click", function(){
-        if (confirm("⚠️ Êtes-vous sûr de vouloir mettre à jour tous les trades de tous les brokers ?")) {
-            updateAllTrades();
-        }
-    });
-    
-    document.getElementById("deleteAllTrades").addEventListener("click", function(){
-        if (confirm("🚨 ATTENTION ! Êtes-vous absolument sûr de vouloir supprimer TOUS les trades ? Cette action est irréversible !")) {
-            deleteAllTrades();
-        }
-    });
-    
-    // Gestion des boutons Saxo
-    document.querySelectorAll('.saxo-sync-btn').forEach(function(button) {
-        button.addEventListener('click', function() {
-            const brokerId = this.getAttribute('data-broker-id');
-            const brokerName = this.getAttribute('data-broker-name');
-            syncSaxoTrades(brokerId, brokerName);
-        });
-    });
-    
-    function syncSaxoTrades(brokerId, brokerName) {
-        const csrftoken = getCookie('csrftoken');
-        
-        // Afficher un indicateur de chargement
-        const button = event.target;
-        const originalText = button.innerHTML;
-        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sync...';
-        button.disabled = true;
-        
-        $.ajax({
-            url: `/brokers/${brokerId}/sync-trades/`,
-            type: 'POST',
-            headers: {'X-CSRFToken': csrftoken },
-            success: function(response) {
-                if (response.success) {
-                    // Recharger les données de la table
-                    location.reload();
-                    
-                    if (response.saved_count > 0) {
-                        alert(`✅ ${response.saved_count} nouveaux trades Saxo (${brokerName}) synchronisés !\n📊 ${response.total_trades} trades au total.`);
-                    } else {
-                        alert(`ℹ️ Aucun nouveau trade trouvé pour Saxo (${brokerName}).\n📊 ${response.total_trades} trades au total.`);
-                    }
-                } else {
-                    alert("❌ Erreur lors de la synchronisation des trades Saxo: " + response.error);
-                }
-            },
-            error: function(xhr) {
-                console.error("Erreur AJAX:", xhr);
-                alert("❌ Erreur lors de la synchronisation des trades Saxo");
-            },
-            complete: function() {
-                // Restaurer le bouton
-                button.innerHTML = originalText;
-                button.disabled = false;
-            }
-        });
-    }
-    
-    function updateAllTrades() {
-        const csrftoken = getCookie('csrftoken');
-        
-        // Afficher un indicateur de chargement
-        const button = event.target;
-        const originalText = button.innerHTML;
-        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Mise à jour...';
-        button.disabled = true;
-        
-        $.ajax({
-            url: '/trades/update-all/',
-            type: 'POST',
-            headers: {'X-CSRFToken': csrftoken },
-            success: function(response) {
-                if (response.success) {
-                    // Recharger les données de la table
-                    location.reload();
-                    
-                    let details = response.details.join('\n');
-                    alert(`✅ ${response.updated_count} trades mis à jour au total !\n\nDétails par broker:\n${details}`);
-                } else {
-                    alert("❌ Erreur lors de la mise à jour des trades: " + response.error);
-                }
-            },
-            error: function(xhr) {
-                console.error("Erreur AJAX:", xhr);
-                alert("❌ Erreur lors de la mise à jour des trades");
-            },
-            complete: function() {
-                // Restaurer le bouton
-                button.innerHTML = originalText;
-                button.disabled = false;
-            }
-        });
-    }
-    
-    function deleteAllTrades() {
-        const csrftoken = getCookie('csrftoken');
-        
-        // Afficher un indicateur de chargement
-        const button = event.target;
-        const originalText = button.innerHTML;
-        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Suppression...';
-        button.disabled = true;
-        
-        $.ajax({
-            url: '/trades/delete-all/',
-            type: 'POST',
-            headers: {'X-CSRFToken': csrftoken },
-            success: function(response) {
-                if (response.success) {
-                    // Recharger les données de la table
-                    location.reload();
-                    
-                    alert(`✅ ${response.deleted_count} trades supprimés avec succès !`);
-                } else {
-                    alert("❌ Erreur lors de la suppression des trades: " + response.error);
-                }
-            },
-            error: function(xhr) {
-                console.error("Erreur AJAX:", xhr);
-                alert("❌ Erreur lors de la suppression des trades");
-            },
-            complete: function() {
-                // Restaurer le bouton
-                button.innerHTML = originalText;
-                button.disabled = false;
-            }
-        });
-    }
-    
-    function loadBinanceTrades(mode) {
-        const csrftoken = getCookie('csrftoken');
-        
-        // Afficher un indicateur de chargement
-        const button = event.target;
-        const originalText = button.innerHTML;
-        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Chargement...';
-        button.disabled = true;
-        
-        $.ajax({
-            url: '/trades/binance/',
-            type: 'POST',
-            data: JSON.stringify({ mode: mode }),
-            contentType: 'application/json',
-            headers: {'X-CSRFToken': csrftoken },
-            success: function(response) {
-                if (response.success) {
-                    // Remplacer les données de la table
-                    tabledata = response.trades;
-                    table.replaceData(tabledata);
-                    
-                    // Mettre à jour le sélecteur d'instruments
-                    initInstrumentSelector();
-                    
-                    if (response.saved_count > 0) {
-                        alert(`✅ ${response.saved_count} nouveaux trades Binance (${mode}) ajoutés !\n📊 ${response.trades.length} trades affichés au total.\n\n${response.message}`);
-                    } else {
-                        alert(`ℹ️ Aucun nouveau trade trouvé pour Binance (${mode}).\n📊 ${response.trades.length} trades affichés au total.`);
-                    }
-                } else {
-                    alert("❌ Erreur lors du chargement des trades Binance: " + response.error);
-                }
-            },
-            error: function(xhr) {
-                console.error("Erreur AJAX:", xhr);
-                alert("❌ Erreur lors du chargement des trades Binance");
-            },
-            complete: function() {
-                // Restaurer le bouton
-                button.innerHTML = originalText;
-                button.disabled = false;
-            }
-        });
-    }
+
+    // Mettre à jour les stats après chargement
+    table.on("dataLoaded", updateStats);
+    table.on("dataFiltered", updateStats);
+});
 </script>
 
 <style>
-.column-item:hover {
-    background-color: #f8f9fa;
-}
-.cursor-pointer {
-    cursor: pointer;
+.badge {
+    font-size: 0.75em;
 }
 </style>
 {% endblock %}

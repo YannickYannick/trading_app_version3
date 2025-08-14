@@ -15,6 +15,7 @@ ALLOWED_HOSTS = [
     '127.0.0.1',
     'localhost',
     '192.168.1.143',
+    'le-baff.com'
 ]
 # Database configuration héritée de base.py
 # Pour utiliser une base différente en test de production, définissez DB_NAME dans l'environnement
