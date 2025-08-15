@@ -21,7 +21,7 @@ import time
 from django.core.serializers.json import DjangoJSONEncoder
 from .brokers.factory import BrokerFactory
 from .models import Asset, Position, Trade, Strategy, StrategyExecution, BrokerCredentials, AssetType, Market, AssetTradable, AllAssets, PendingOrder
-# from .services.telegram_notifications import telegram_notifier  # Supprimé car le fichier n'existe plus
+from .telegram_notifications import telegram_notifier
 
 
 logger = logging.getLogger(__name__)
@@ -705,6 +705,65 @@ def execute_strategy(request, strategy_id):
     try:
         strategy = get_object_or_404(Strategy, id=strategy_id, user=request.user)
         
+        # ÉTAPE 1: Mettre à jour les prix de l'asset avant l'exécution
+        print(f"🔄 Mise à jour des prix pour {strategy.asset.symbol_clean} avant exécution...")
+        try:
+            # Nettoyer le symbole pour Yahoo Finance
+            clean_symbol = strategy.asset.symbol_clean or strategy.asset.get_clean_symbol()
+            clean_symbol = clean_symbol.strip()
+            
+            print(f"🔍 Symbole nettoyé pour mise à jour: {clean_symbol}")
+            
+            # Détecter si c'est une cryptomonnaie
+            crypto_symbols = ["BTC", "ETH", "ETHW", "SOL", "AVAX", "BNB", "ADA", "DOT", "LINK", "UNI", "MATIC", "USDT", "USDC", "DAI", "LTC", "XRP", "DOGE", "SHIB", "TRX", "BCH", "XLM"]
+            
+            # Vérifier si c'est une crypto directe ou une paire EUR
+            is_crypto = any(crypto in clean_symbol.upper() for crypto in crypto_symbols)
+            
+            # Ajouter la détection des paires EUR
+            if clean_symbol.endswith('EUR'):
+                base_symbol = clean_symbol[:-3]
+                if base_symbol in crypto_symbols:
+                    is_crypto = True
+                    print(f"🔄 Paire EUR crypto détectée: {clean_symbol} -> {base_symbol}")
+            
+            if is_crypto:
+                print(f"🪙 Détecté comme cryptomonnaie, utilisation de CoinGecko")
+                crypto_data = get_crypto_data(clean_symbol)
+                
+                if crypto_data:
+                    # Mettre à jour l'Asset avec les données CoinGecko
+                    strategy.asset.name = crypto_data.get('name', strategy.asset.name)
+                    strategy.asset.sector = crypto_data.get('sector', strategy.asset.sector)
+                    strategy.asset.industry = crypto_data.get('industry', strategy.asset.industry)
+                    strategy.asset.market_cap = crypto_data.get('market_cap', strategy.asset.market_cap)
+                    strategy.asset.price_history = crypto_data.get('price_history', strategy.asset.price_history)
+                    strategy.asset.save()
+                    
+                    print(f"✅ Prix mis à jour pour {strategy.asset.symbol_clean} via CoinGecko")
+                else:
+                    print(f"⚠️ Pas de données CoinGecko pour {strategy.asset.symbol_clean}")
+            else:
+                # Utiliser Yahoo Finance pour les actions/autres
+                yahoo_data = get_yahoo_data(clean_symbol)
+                
+                if yahoo_data:
+                    # Mettre à jour l'Asset avec les données Yahoo
+                    strategy.asset.name = yahoo_data.get('name', strategy.asset.name)
+                    strategy.asset.sector = yahoo_data.get('sector', strategy.asset.sector)
+                    strategy.asset.industry = yahoo_data.get('industry', strategy.asset.industry)
+                    strategy.asset.market_cap = yahoo_data.get('market_cap', strategy.asset.market_cap)
+                    strategy.asset.price_history = yahoo_data.get('price_history', strategy.asset.price_history)
+                    strategy.asset.save()
+                    
+                    print(f"✅ Prix mis à jour pour {strategy.asset.symbol_clean} via Yahoo Finance")
+                else:
+                    print(f"⚠️ Pas de données Yahoo pour {strategy.asset.symbol_clean}")
+                    
+        except Exception as e:
+            print(f"⚠️ Erreur lors de la mise à jour des prix: {e}")
+            # Continuer avec les anciens prix si la mise à jour échoue
+        
         # Vérifier que la stratégie a un asset avec des données de prix
         if not strategy.asset.price_history or strategy.asset.price_history == 'xxxx':
             return JsonResponse({
@@ -712,7 +771,7 @@ def execute_strategy(request, strategy_id):
                 'error': 'Aucun historique de prix disponible pour cet asset'
             })
         
-        # Récupérer les données de prix
+        # Récupérer les données de prix (maintenant mises à jour)
         try:
             price_data = json.loads(strategy.asset.price_history)
         except json.JSONDecodeError:
@@ -752,7 +811,15 @@ def execute_strategy(request, strategy_id):
         if strategy.should_execute_order(signal_result):
             # Exécuter l'ordre réel
             try:
-                order_size = strategy.parameters.get('order_size', 1.0)
+                # Utiliser la quantité calculée automatiquement si disponible
+                if signal_result.get('auto_quantity') and signal_result.get('calculated_quantity'):
+                    order_size = signal_result['calculated_quantity']
+                    print(f"🎯 Quantité calculée automatiquement: {order_size}")
+                else:
+                    # Fallback sur la quantité par défaut des paramètres
+                    order_size = strategy.parameters.get('order_size', 1.0)
+                    print(f"⚠️ Utilisation quantité par défaut: {order_size}")
+                
                 side = 'BUY' if signal_result['signal'] == 'BUY' else 'SELL'
                 
                 print(f"🔐 Exécution ordre stratégie: {strategy.asset.symbol_clean} - {side} - {order_size}")
@@ -776,14 +843,57 @@ def execute_strategy(request, strategy_id):
                     strategy.total_trades += 1
                     strategy.successful_trades += 1
                     print(f"✅ Ordre stratégie exécuté avec succès")
+                    
+                    # Envoyer notification Telegram de succès
+                    try:
+                        notification_data = {
+                            'symbol': strategy.asset.symbol_clean or strategy.asset.symbol,
+                            'asset_name': strategy.asset.name or strategy.asset.symbol,
+                            'price': f"{current_price:.4f}",
+                            'quantity': f"{order_size:.4f}",
+                            'side': side,
+                            'broker': strategy.broker.broker_type.upper(),
+                            'strategy': strategy.name
+                        }
+                        telegram_notifier.send_order_notification(notification_data)
+                        print("✅ Notification Telegram envoyée pour la stratégie")
+                    except Exception as e:
+                        print(f"⚠️ Erreur notification Telegram stratégie: {e}")
+                        
                 else:
                     order_executed = False
                     print(f"❌ Échec exécution ordre stratégie: {result.get('message', 'Erreur inconnue')}")
+                    
+                    # Envoyer notification Telegram d'erreur
+                    try:
+                        error_notification_data = {
+                            'symbol': strategy.asset.symbol_clean or strategy.asset.symbol,
+                            'broker': strategy.broker.broker_type.upper(),
+                            'error_message': result.get('message', 'Erreur inconnue'),
+                            'strategy': strategy.name
+                        }
+                        telegram_notifier.send_error_notification(error_notification_data)
+                        print("✅ Notification d'erreur Telegram envoyée pour la stratégie")
+                    except Exception as e:
+                        print(f"⚠️ Erreur notification d'erreur Telegram stratégie: {e}")
                     
             except Exception as e:
                 order_executed = False
                 print(f"❌ Exception lors de l'exécution d'ordre stratégie: {e}")
                 execution.error_message = str(e)
+                
+                # Envoyer notification Telegram d'erreur d'exception
+                try:
+                    error_notification_data = {
+                        'symbol': strategy.asset.symbol_clean or strategy.asset.symbol,
+                        'broker': strategy.broker.broker_type.upper() if strategy.broker else 'N/A',
+                        'error_message': str(e),
+                        'strategy': strategy.name
+                    }
+                    telegram_notifier.send_error_notification(error_notification_data)
+                    print("✅ Notification d'erreur Telegram envoyée pour l'exception de stratégie")
+                except Exception as telegram_error:
+                    print(f"⚠️ Erreur notification d'erreur Telegram stratégie: {telegram_error}")
         
         execution.order_executed = order_executed
         execution.order_size = order_size
@@ -848,6 +958,49 @@ def update_strategy_frequency(request, strategy_id):
         return JsonResponse({'success': False, 'error': 'Données JSON invalides'})
     except Exception as e:
         return JsonResponse({'success': False, 'error': str(e)})
+
+@login_required
+def get_strategy_executions(request, strategy_id):
+    """Récupérer l'historique des exécutions d'une stratégie"""
+    try:
+        strategy = get_object_or_404(Strategy, id=strategy_id, user=request.user)
+        
+        # Récupérer toutes les exécutions de cette stratégie
+        executions = StrategyExecution.objects.filter(
+            strategy=strategy
+        ).order_by('-execution_time')
+        
+        # Formater les données des exécutions
+        executions_data = []
+        for execution in executions:
+            executions_data.append({
+                'id': execution.id,
+                'execution_time': execution.execution_time.isoformat(),
+                'signal': execution.signal,
+                'signal_strength': float(execution.signal_strength),
+                'current_price': float(execution.current_price),
+                'order_executed': execution.order_executed,
+                'order_size': float(execution.order_size) if execution.order_size else None,
+                'order_price': float(execution.order_price) if execution.order_price else None,
+                'execution_duration': execution.execution_duration,
+                'error_message': execution.error_message
+            })
+        
+        return JsonResponse({
+            'success': True,
+            'executions': executions_data,
+            'strategy': {
+                'id': strategy.id,
+                'name': strategy.name,
+                'asset_name': strategy.asset.symbol_clean or strategy.asset.symbol
+            }
+        })
+        
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'error': str(e)
+        })
 
 @login_required
 @csrf_exempt
@@ -2241,6 +2394,33 @@ def place_order_view(request):
                     'status': 'error',
                     'message': 'Asset ou broker non trouvé'
                 })
+            
+            # Vérifier si on peut calculer la quantité automatiquement
+            # Chercher une stratégie correspondante pour cet asset
+            try:
+                strategy = Strategy.objects.filter(
+                    user=request.user,
+                    asset=asset,
+                    status='active'
+                ).first()
+                
+                if strategy and strategy.portfolio_quantity != -1:
+                    # Calculer la quantité optimale selon la stratégie
+                    if side.upper() == 'BUY' and strategy.target_max_quantity > 0:
+                        current_quantity = float(strategy.portfolio_quantity)
+                        optimal_amount = strategy.target_max_quantity - current_quantity
+                        if optimal_amount > 0:
+                            amount = min(optimal_amount, amount)  # Prendre le minimum entre optimal et saisi
+                            print(f"🎯 Quantité optimale calculée: {optimal_amount}, utilisée: {amount}")
+                    elif side.upper() == 'SELL' and strategy.target_min_quantity > 0:
+                        current_quantity = float(strategy.portfolio_quantity)
+                        optimal_amount = current_quantity - strategy.target_min_quantity
+                        if optimal_amount > 0:
+                            amount = min(optimal_amount, amount)  # Prendre le minimum entre optimal et saisi
+                            print(f"🎯 Quantité optimale calculée: {optimal_amount}, utilisée: {amount}")
+                            
+            except Exception as e:
+                print(f"⚠️ Impossible de calculer la quantité optimale: {e}")
             
             # Passer l'ordre selon le type de broker
             if broker.broker_type == 'saxo':
@@ -3762,24 +3942,89 @@ def positions_overview_tabulator(request):
 def update_portfolio_quantities(request):
     """Met à jour les quantités de portefeuille pour toutes les stratégies de l'utilisateur"""
     try:
-        # Mettre à jour toutes les stratégies de l'utilisateur
+        # ÉTAPE 1: Mettre à jour les AssetTradable.quantity d'abord
+        print("🔄 Étape 1: Mise à jour des AssetTradable.quantity...")
+        
+        # Récupérer tous les AssetTradable liés aux stratégies de l'utilisateur
+        user_strategies = Strategy.objects.filter(user=request.user)
+        user_asset_symbols = set()
+        
+        for strategy in user_strategies:
+            if strategy.asset and strategy.asset.symbol:
+                # Extraire le symbole de base (AAPL, GOOGL)
+                base_symbol = strategy.asset.symbol.split(':')[0].split('_')[0].upper()
+                user_asset_symbols.add(base_symbol)
+        
+        # Mettre à jour chaque AssetTradable correspondant
+        asset_tradables_updated = 0
+        for base_symbol in user_asset_symbols:
+            try:
+                # Chercher tous les AssetTradable correspondants (toutes plateformes)
+                asset_tradables = AssetTradable.objects.filter(
+                    symbol__startswith=base_symbol
+                )
+                
+                for asset_tradable in asset_tradables:
+                    # Calculer la quantité nette pour cet AssetTradable
+                    positions = Position.objects.filter(
+                        user=request.user,
+                        asset_tradable=asset_tradable
+                    )
+                    
+                    pending_orders = PendingOrder.objects.filter(
+                        user=request.user,
+                        asset_tradable=asset_tradable
+                    )
+                    
+                    # Calculer le net (positions + pending orders)
+                    net_position = 0.0
+                    
+                    for pos in positions:
+                        if pos.side == 'BUY':
+                            net_position += float(pos.size)
+                        else:  # SELL
+                            net_position -= float(pos.size)
+                    
+                    for order in pending_orders:
+                        if order.side == 'BUY':
+                            net_position += float(order.original_quantity)
+                        else:  # SELL
+                            net_position -= float(order.original_quantity)
+                    
+                    # Mettre à jour le champ quantity
+                    old_quantity = asset_tradable.quantity
+                    asset_tradable.quantity = net_position
+                    asset_tradable.save(update_fields=['quantity'])
+                    
+                    print(f"   ✅ {asset_tradable.symbol}: {old_quantity} → {net_position:.6f}")
+                    asset_tradables_updated += 1
+                    
+            except Exception as e:
+                print(f"   ❌ Erreur mise à jour AssetTradable {base_symbol}: {e}")
+        
+        # ÉTAPE 2: Mettre à jour les stratégies maintenant que AssetTradable sont à jour
+        print(f"🔄 Étape 2: Mise à jour des stratégies (après {asset_tradables_updated} AssetTradable)...")
+        
         strategies = Strategy.objects.filter(user=request.user)
-        updated_count = 0
+        strategies_updated = 0
         
         for strategy in strategies:
             try:
                 strategy.calculate_portfolio_quantity()
-                updated_count += 1
+                strategies_updated += 1
+                print(f"   ✅ Stratégie {strategy.name}: portfolio_quantity mis à jour")
             except Exception as e:
-                print(f"Erreur mise à jour stratégie {strategy.name}: {e}")
+                print(f"   ❌ Erreur mise à jour stratégie {strategy.name}: {e}")
         
         return JsonResponse({
             'success': True,
-            'message': f'{updated_count} stratégies mises à jour',
-            'updated_count': updated_count
+            'message': f'{asset_tradables_updated} AssetTradable et {strategies_updated} stratégies mises à jour',
+            'updated_count': strategies_updated,
+            'asset_tradables_updated': asset_tradables_updated
         })
         
     except Exception as e:
+        print(f"❌ Erreur générale dans update_portfolio_quantities: {e}")
         return JsonResponse({
             'success': False,
             'error': str(e)

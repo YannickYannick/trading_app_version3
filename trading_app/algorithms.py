@@ -57,12 +57,19 @@ class ThresholdAlgorithm(TradingAlgorithm):
             # Signal d'achat si on peut augmenter la position
             if target_max_quantity > 0 and portfolio_quantity >= 0:
                 if portfolio_quantity < target_max_quantity:
+                    # Calculer la quantité à acheter automatiquement
+                    quantity_to_buy = target_max_quantity - portfolio_quantity
+                    # Limiter par la limite de sécurité depuis les paramètres
+                    max_trade_size = float(self.parameters.get('order_size', 1000))
+                    final_quantity = min(quantity_to_buy, max_trade_size)
+                    
                     strength = min(1.0, (threshold_low - current_price) / threshold_low * 2)
                     return {
                         'signal': 'BUY',
                         'strength': strength,
-                        'reason': f'Prix ({current_price}) en dessous du seuil bas ({threshold_low}) - Acheter pour atteindre {target_max_quantity}',
-                        'auto_quantity': True  # Indique que la quantité sera calculée automatiquement
+                        'reason': f'Prix ({current_price}) en dessous du seuil bas ({threshold_low}) - Acheter {final_quantity} pour atteindre {target_max_quantity}',
+                        'auto_quantity': True,
+                        'calculated_quantity': final_quantity
                     }
                 else:
                     return {
@@ -83,12 +90,19 @@ class ThresholdAlgorithm(TradingAlgorithm):
             # Signal de vente si on peut réduire la position
             if target_min_quantity > 0 and portfolio_quantity >= 0:
                 if portfolio_quantity > target_min_quantity:
+                    # Calculer la quantité à vendre automatiquement
+                    quantity_to_sell = portfolio_quantity - target_min_quantity
+                    # Limiter par la limite de sécurité depuis les paramètres
+                    max_trade_size = float(self.parameters.get('order_size', 1000))
+                    final_quantity = min(quantity_to_sell, max_trade_size)
+                    
                     strength = min(1.0, (current_price - threshold_high) / threshold_high * 2)
                     return {
                         'signal': 'SELL',
                         'strength': strength,
-                        'reason': f'Prix ({current_price}) au-dessus du seuil haut ({threshold_high}) - Vendre pour atteindre {target_min_quantity}',
-                        'auto_quantity': True  # Indique que la quantité sera calculée automatiquement
+                        'reason': f'Prix ({current_price}) au-dessus du seuil haut ({threshold_high}) - Vendre {final_quantity} pour atteindre {target_min_quantity}',
+                        'auto_quantity': True,
+                        'calculated_quantity': final_quantity
                     }
                 else:
                     return {

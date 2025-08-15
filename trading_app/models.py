@@ -502,6 +502,26 @@ class Strategy(models.Model):
                 return 0
         else:
             return 0
+    
+    def calculate_optimal_quantity(self, side):
+        """Calcule la quantité optimale selon l'objectif de la stratégie"""
+        if self.portfolio_quantity == -1:
+            return 0
+        
+        current_quantity = float(self.portfolio_quantity)
+        max_trade_size = float(self.parameters.get('order_size', 1000))
+        
+        if side.upper() == 'BUY' and self.target_max_quantity > 0:
+            # Quantité à acheter pour atteindre target_max_quantity
+            optimal = self.target_max_quantity - current_quantity
+            return max(0, min(optimal, max_trade_size))
+        
+        elif side.upper() == 'SELL' and self.target_min_quantity > 0:
+            # Quantité à vendre pour atteindre target_min_quantity
+            optimal = current_quantity - self.target_min_quantity
+            return max(0, min(optimal, max_trade_size))
+        
+        return 0
 
 class StrategyExecution(models.Model):
     """Historique des exécutions de stratégies"""

@@ -258,6 +258,26 @@
     </div>
 </div>
 
+<!-- Modal pour voir l'historique des exécutions d'une stratégie -->
+<div class="modal fade" id="strategyExecutionsModal" tabindex="-1" aria-labelledby="strategyExecutionsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="strategyExecutionsModalLabel">Historique des Exécutions</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="strategyExecutionsTable">
+                    <!-- L'historique des exécutions sera chargé dynamiquement -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fermer</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Modal pour éditer une stratégie -->
 <div class="modal fade" id="editStrategyModal" tabindex="-1" aria-labelledby="editStrategyModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg">
@@ -402,6 +422,10 @@
                     <i class="fas fa-info-circle"></i>
                     <strong>Note:</strong> L'exécution manuelle lance immédiatement la stratégie. 
                     Pour une exécution automatique, activez la stratégie et elle s'exécutera selon sa fréquence configurée.
+                </div>
+                <div class="alert alert-warning">
+                    <i class="fas fa-sync-alt"></i>
+                    <strong>Mise à jour automatique:</strong> Les prix de l'asset seront automatiquement mis à jour via Yahoo Finance avant l'exécution de la stratégie pour garantir des données fraîches.
                 </div>
             </div>
             <div class="modal-footer">
@@ -595,11 +619,11 @@ document.addEventListener('DOMContentLoaded', function() {
 function initializeTable() {
     var table = new Tabulator("#strategy-table", {
         height: "500px",
-        layout: "fitColumns",
+        layout: "fitData",
         data: strategiesData,
         columns: [
-            {title: "Nom", field: "name", headerFilter: "input"},
-            {title: "Asset", field: "asset_name", headerFilter: "input"},
+            {title: "Nom", field: "name", headerFilter: "input", width: 120},
+            {title: "Asset", field: "asset_name", headerFilter: "input", width: 80},
             {title: "Portefeuille", field: "portfolio_quantity", formatter: function(cell) {
                 var quantity = parseFloat(cell.getValue()) || 0;
                 if (quantity === 0) {
@@ -608,53 +632,54 @@ function initializeTable() {
                     var color = quantity > 0 ? 'success' : 'danger';
                     return '<span class="text-' + color + ' fw-bold">' + quantity.toFixed(2) + '</span>';
                 }
-            }, headerFilter: "input"},
-            {title: "Min Cible", field: "target_min_quantity", formatter: function(cell) {
-                var quantity = parseFloat(cell.getValue()) || 0;
-                if (quantity === 0) {
+            }, headerFilter: "input", width: 100},
+            {title: "Seuils Cibles", field: "target_min_quantity", formatter: function(cell) {
+                var row = cell.getRow();
+                var minQty = parseFloat(cell.getValue()) || 0;
+                var maxQty = parseFloat(row.getData().target_max_quantity) || 0;
+                
+                if (minQty === 0 && maxQty === 0) {
                     return '<span class="text-muted">-</span>';
                 } else {
-                    return '<span class="text-info fw-bold">' + quantity.toFixed(2) + '</span>';
+                    var minText = minQty > 0 ? '<span class="text-info">' + minQty.toFixed(2) + '</span>' : '';
+                    var maxText = maxQty > 0 ? '<span class="text-warning">' + maxQty.toFixed(2) + '</span>' : '';
+                    var separator = minQty > 0 && maxQty > 0 ? ' → ' : '';
+                    return minText + separator + maxText;
                 }
-            }, headerFilter: "input"},
-            {title: "Max Cible", field: "target_max_quantity", formatter: function(cell) {
-                var quantity = parseFloat(cell.getValue()) || 0;
-                if (quantity === 0) {
-                    return '<span class="text-muted">-</span>';
-                } else {
-                    return '<span class="text-warning fw-bold">' + quantity.toFixed(2) + '</span>';
-                }
-            }, headerFilter: "input"},
-            {title: "Algorithme", field: "algorithm_type_display", headerFilter: "select"},
-            {title: "Broker", field: "broker_name", headerFilter: "input"},
-            {title: "Mode", field: "execution_mode_display", headerFilter: "select"},
-            {title: "Statut", field: "status", headerFilter: "select", formatter: function(cell) {
+            }, headerFilter: "input", width: 120},
+            {title: "Algorithme", field: "algorithm_type_display", headerFilter: "select", width: 140},
+            {title: "Broker", field: "broker_name", headerFilter: "input", width: 80},
+            {title: "Mode", field: "execution_mode_display", headerFilter: "select", width: 100},
+            {title: "Configuration", field: "status", formatter: function(cell) {
+                var row = cell.getRow();
                 var status = cell.getValue();
+                var frequency = row.getData().check_frequency;
                 var color = status === 'active' ? 'success' : status === 'inactive' ? 'secondary' : 'warning';
-                return '<span class="badge bg-' + color + '">' + status + '</span>';
-            }},
-            {title: "Fréquence", field: "check_frequency", formatter: function(cell) {
-                return cell.getValue() + ' min';
-            }},
-            {title: "Trades", field: "total_trades", formatter: function(cell) {
+                return '<div><span class="badge bg-' + color + '">' + status + '</span><br><small class="text-muted">' + frequency + ' min</small></div>';
+            }, headerFilter: "select", width: 100},
+            {title: "Performance", field: "total_trades", formatter: function(cell) {
+                var row = cell.getRow();
                 var total = cell.getValue();
-                var successful = cell.getRow().getData().successful_trades || 0;
-                return total + ' (' + successful + ' réussis)';
-            }},
-            {title: "P&L Total", field: "total_pnl", formatter: function(cell) {
-                var value = parseFloat(cell.getValue());
-                var color = value >= 0 ? 'success' : 'danger';
-                return '<span class="text-' + color + '">' + value.toFixed(2) + ' €</span>';
-            }},
+                var successful = row.getData().successful_trades || 0;
+                var pnl = parseFloat(row.getData().total_pnl) || 0;
+                var pnlColor = pnl >= 0 ? 'success' : 'danger';
+                
+                return '<div><small>' + total + ' (' + successful + ' réussis)</small><br>' +
+                       '<span class="text-' + pnlColor + ' fw-bold">' + pnl.toFixed(2) + ' €</span></div>';
+            }, headerFilter: "input", width: 120},
             {title: "Actions", formatter: function(cell) {
                 var row = cell.getRow();
                 var data = row.getData();
-                return '<button class="btn btn-sm btn-info me-1" onclick="viewStrategy(' + data.id + ')">Voir</button>' +
-                       '<button class="btn btn-sm btn-primary me-1" onclick="editStrategy(' + data.id + ')">Modifier</button>' +
-                       '<button class="btn btn-sm btn-warning me-1" onclick="toggleStrategy(' + data.id + ')">' + 
-                       (data.status === 'active' ? 'Pause' : 'Activer') + '</button>' +
-                       '<button class="btn btn-sm btn-danger" onclick="deleteStrategy(' + data.id + ')">Suppr</button>';
-            }}
+                return '<div class="btn-group btn-group-sm" role="group">' +
+                       '<button class="btn btn-outline-info" title="Voir" onclick="viewStrategy(' + data.id + ')"><i class="fas fa-eye"></i></button>' +
+                       '<button class="btn btn-outline-primary" title="Modifier" onclick="editStrategy(' + data.id + ')"><i class="fas fa-edit"></i></button>' +
+                       '<button class="btn btn-outline-warning" title="' + (data.status === 'active' ? 'Pause' : 'Activer') + '" onclick="toggleStrategy(' + data.id + ')"><i class="fas fa-' + 
+                       (data.status === 'active' ? 'pause' : 'play') + '"></i></button>' +
+                       '<button class="btn btn-outline-success" title="Exécuter" onclick="executeStrategyDirect(' + data.id + ')"><i class="fas fa-rocket"></i></button>' +
+                       '<button class="btn btn-outline-secondary" title="Historique Exécutions" onclick="viewStrategyExecutions(' + data.id + ')"><i class="fas fa-history"></i></button>' +
+                       '<button class="btn btn-outline-danger" title="Supprimer" onclick="deleteStrategy(' + data.id + ')"><i class="fas fa-trash"></i></button>' +
+                       '</div>';
+            }, width: 260, hozAlign: "center"}
         ]
     });
 }
@@ -837,6 +862,20 @@ function viewStrategy(strategyId) {
     });
 }
 
+// Voir l'historique des exécutions d'une stratégie
+function viewStrategyExecutions(strategyId) {
+    fetch('/strategies/' + strategyId + '/executions/')
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            document.getElementById('strategyExecutionsTable').innerHTML = formatStrategyExecutions(data.executions, data.strategy);
+            new bootstrap.Modal(document.getElementById('strategyExecutionsModal')).show();
+        } else {
+            alert('Erreur: ' + data.error);
+        }
+    });
+}
+
 // Éditer une stratégie
 function editStrategy(strategyId) {
     fetch('/strategies/' + strategyId + '/details/')
@@ -1000,6 +1039,71 @@ function formatStrategyDetails(strategy) {
     `;
 }
 
+// Formater l'historique des exécutions d'une stratégie
+function formatStrategyExecutions(executions, strategy) {
+    if (!executions || executions.length === 0) {
+        return `
+            <div class="text-center text-muted">
+                <i class="fas fa-info-circle fa-3x mb-3"></i>
+                <h5>Aucune exécution trouvée</h5>
+                <p>Cette stratégie n'a pas encore été exécutée.</p>
+            </div>
+        `;
+    }
+    
+    let executionsHtml = `
+        <div class="row mb-3">
+            <div class="col-12">
+                <h6>Historique des exécutions pour ${strategy.name} (${strategy.asset_name})</h6>
+                <p class="text-muted">Total: ${executions.length} exécutions</p>
+            </div>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm table-striped">
+                <thead class="table-dark">
+                    <tr>
+                        <th>Date/Heure</th>
+                        <th>Signal</th>
+                        <th>Prix</th>
+                        <th>Force</th>
+                        <th>Ordre Exécuté</th>
+                        <th>Taille Ordre</th>
+                        <th>Prix Ordre</th>
+                        <th>Durée</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+    
+    executions.forEach(execution => {
+        const date = new Date(execution.execution_time).toLocaleString('fr-FR');
+        const signalClass = execution.signal === 'BUY' ? 'success' : execution.signal === 'SELL' ? 'danger' : 'secondary';
+        const orderExecutedClass = execution.order_executed ? 'success' : 'warning';
+        const duration = execution.execution_duration ? execution.execution_duration.toFixed(2) + 's' : '-';
+        
+        executionsHtml += `
+            <tr>
+                <td>${date}</td>
+                <td><span class="badge bg-${signalClass}">${execution.signal}</span></td>
+                <td>${execution.current_price} €</td>
+                <td>${execution.signal_strength.toFixed(2)}</td>
+                <td><span class="badge bg-${orderExecutedClass}">${execution.order_executed ? 'Oui' : 'Non'}</span></td>
+                <td>${execution.order_size || '-'}</td>
+                <td>${execution.order_price || '-'}</td>
+                <td>${duration}</td>
+            </tr>
+        `;
+    });
+    
+    executionsHtml += `
+                </tbody>
+            </table>
+        </div>
+    `;
+    
+    return executionsHtml;
+}
+
 // Activer/Désactiver une stratégie
 function toggleStrategy(strategyId) {
     var action = confirm('Voulez-vous changer le statut de cette stratégie ?');
@@ -1127,7 +1231,7 @@ function initializeHistoryTable() {
     });
 }
 
-// Exécuter une stratégie manuellement
+// Exécuter une stratégie manuellement (depuis le modal)
 function executeStrategy() {
     var strategyId = document.getElementById('executeStrategySelect').value;
     var frequency = parseInt(document.getElementById('executeFrequency').value);
@@ -1168,7 +1272,7 @@ function executeStrategy() {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            alert('Stratégie exécutée avec succès !\nSignal: ' + data.signal + '\nRaison: ' + data.reason);
+            alert('Stratégie exécutée avec succès !\n\n📊 Signal: ' + data.signal + '\n💡 Raison: ' + data.reason + '\n🔄 Prix mis à jour avant exécution');
             // Fermer le modal
             bootstrap.Modal.getInstance(document.getElementById('executeStrategyModal')).hide();
         } else {
@@ -1179,6 +1283,51 @@ function executeStrategy() {
         console.error('Erreur:', error);
         alert('Erreur lors de l\'exécution de la stratégie');
     });
+}
+
+// Exécuter une stratégie directement depuis le bouton (nouvelle fonction)
+function executeStrategyDirect(strategyId) {
+    if (!strategyId) {
+        alert('ID de stratégie manquant');
+        return;
+    }
+    
+    if (confirm('Voulez-vous exécuter cette stratégie maintenant ?\n\n⚠️ Note: Les prix seront automatiquement mis à jour avant l\'exécution.')) {
+        // Afficher un indicateur de chargement
+        const button = event.target;
+        const originalText = button.innerHTML;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Mise à jour...';
+        button.disabled = true;
+        
+        // Exécuter la stratégie directement
+        fetch('/strategies/' + strategyId + '/execute/', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': getCookie('csrftoken')
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('Stratégie exécutée avec succès !\n\n📊 Signal: ' + data.signal + '\n💡 Raison: ' + data.reason + '\n🔄 Prix mis à jour avant exécution');
+                // Recharger le tableau pour mettre à jour les données
+                if (typeof table !== 'undefined') {
+                    table.setData(strategiesData);
+                }
+            } else {
+                alert('Erreur lors de l\'exécution: ' + data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Erreur:', error);
+            alert('Erreur lors de l\'exécution de la stratégie');
+        })
+        .finally(() => {
+            // Restaurer le bouton
+            button.innerHTML = originalText;
+            button.disabled = false;
+        });
+    }
 }
 
 // Charger l'historique des exécutions

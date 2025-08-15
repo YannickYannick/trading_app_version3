@@ -55,6 +55,7 @@ urlpatterns = [
     path('strategies/<int:strategy_id>/execute/', views.execute_strategy, name='execute_strategy'),
     path('strategies/<int:strategy_id>/update-frequency/', views.update_strategy_frequency, name='update_strategy_frequency'),
     path('strategies/<int:strategy_id>/update/', views.update_strategy, name='update_strategy'),
+    path('strategies/<int:strategy_id>/executions/', views.get_strategy_executions, name='get_strategy_executions'),
     path('strategies/update-portfolio/', views.update_portfolio_quantities, name='update_portfolio_quantities'),
     path('strategies/execution-history/', views.execution_history, name='execution_history'),
     
