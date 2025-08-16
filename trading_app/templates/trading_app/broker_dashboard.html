@@ -79,7 +79,14 @@
                         <button class="btn btn-sm btn-outline-info" onclick="testConnection({{ broker.id }})">
                             <i class="fas fa-plug"></i> Test
                         </button>
-                        {% if broker.broker_type == "binance" %}
+                        {% if broker.broker_type == "saxo" %}
+                        <button class="btn btn-sm btn-outline-primary" onclick="syncSaxoComplete({{ broker.id }})">
+                            <i class="fas fa-sync-alt"></i> Refresh Complet Saxo
+                        </button>
+                        <button class="btn btn-sm btn-outline-warning" onclick="forceRefreshSaxoTokens({{ broker.id }})">
+                            <i class="fas fa-key"></i> Refresh Tokens
+                        </button>
+                        {% elif broker.broker_type == "binance" %}
                         <button class="btn btn-sm btn-outline-success" onclick="loadBinancePositions({{ broker.id }})">
                             <i class="fas fa-sync"></i> Positions Binance
                         </button>
@@ -266,6 +273,215 @@ function loadBinancePositions(brokerId) {
     .finally(() => {
         btn.innerHTML = originalText;
         btn.disabled = false;
+    });
+}
+
+function syncSaxoComplete(brokerId) {
+    console.log("🔄 Synchronisation complète Saxo Bank pour broker", brokerId);
+    const csrftoken = getCookie('csrftoken');
+    
+    // Afficher un indicateur de chargement
+    const button = event.target;
+    const originalText = button.innerHTML;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Refresh...';
+    button.disabled = true;
+    
+    // Créer une zone de résultats si elle n'existe pas
+    let resultDiv = document.getElementById('saxo-sync-result');
+    if (!resultDiv) {
+        resultDiv = document.createElement('div');
+        resultDiv.id = 'saxo-sync-result';
+        resultDiv.className = 'mt-3';
+        button.parentNode.parentNode.appendChild(resultDiv);
+    }
+    
+    resultDiv.innerHTML = '<div class="alert alert-info"><i class="fas fa-spinner fa-spin"></i> Synchronisation complète Saxo Bank en cours...</div>';
+    
+    fetch(`/brokers/${brokerId}/sync-saxo-complete/`, {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': csrftoken,
+            'Content-Type': 'application/x-www-form-urlencoded'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        console.log("✅ Réponse synchronisation Saxo:", data);
+        
+        if (data.success) {
+            let detailsHtml = '<div class="alert alert-success">';
+            detailsHtml += `<h6><i class="fas fa-check"></i> ${data.message}</h6>`;
+            detailsHtml += `<p><strong>Broker:</strong> ${data.broker_name}</p>`;
+            detailsHtml += `<p><strong>Timestamp:</strong> ${new Date(data.timestamp).toLocaleString()}</p>`;
+            
+            if (data.results) {
+                detailsHtml += '<hr><h6>Détails de la synchronisation:</h6>';
+                
+                // Connectivité
+                if (data.results.connectivity) {
+                    const connectivity = data.results.connectivity;
+                    if (connectivity.auth_endpoint) {
+                        const authIcon = connectivity.auth_endpoint.success ? '✅' : '❌';
+                        detailsHtml += `<p><strong>🔐 Auth Endpoint:</strong> ${authIcon} ${connectivity.auth_endpoint.message}</p>`;
+                    }
+                    if (connectivity.api_endpoint) {
+                        const apiIcon = connectivity.api_endpoint.success ? '✅' : '❌';
+                        detailsHtml += `<p><strong>🌐 API Endpoint:</strong> ${apiIcon} ${connectivity.api_endpoint.message}</p>`;
+                    }
+                }
+                
+                // Token status
+                if (data.results.token_status) {
+                    const token = data.results.token_status;
+                    const tokenIcon = token.valid ? '✅' : '❌';
+                    detailsHtml += `<p><strong>🔑 Token:</strong> ${tokenIcon} ${token.message}</p>`;
+                    if (token.expires_in !== 'N/A') {
+                        detailsHtml += `<p><strong>⏰ Expire dans:</strong> ${token.expires_in}</p>`;
+                    }
+                }
+                
+                // Positions
+                if (data.results.positions) {
+                    const pos = data.results.positions;
+                    const posIcon = pos.success ? '✅' : '❌';
+                    detailsHtml += `<p><strong>📊 Positions:</strong> ${posIcon} ${pos.message}</p>`;
+                    if (pos.success && pos.details && pos.details.length > 0) {
+                        detailsHtml += '<ul class="small">';
+                        pos.details.slice(0, 5).forEach(pos_detail => {
+                            detailsHtml += `<li>${pos_detail.symbol}: ${pos_detail.size} @ ${pos_detail.entry_price || 'N/A'}</li>`;
+                        });
+                        if (pos.details.length > 5) {
+                            detailsHtml += `<li>... et ${pos.details.length - 5} autres</li>`;
+                        }
+                        detailsHtml += '</ul>';
+                    }
+                }
+                
+                // Trades
+                if (data.results.trades) {
+                    const trades = data.results.trades;
+                    const tradesIcon = trades.success ? '✅' : '❌';
+                    detailsHtml += `<p><strong>📈 Trades:</strong> ${tradesIcon} ${trades.message}</p>`;
+                }
+                
+                // Orders
+                if (data.results.orders) {
+                    const orders = data.results.orders;
+                    const ordersIcon = orders.success ? '✅' : '❌';
+                    detailsHtml += `<p><strong>📋 Ordres:</strong> ${ordersIcon} ${orders.message}</p>`;
+                }
+                
+                // Balance
+                if (data.results.balance) {
+                    const balance = data.results.balance;
+                    const balanceIcon = balance.success ? '✅' : '❌';
+                    detailsHtml += `<p><strong>💰 Solde:</strong> ${balanceIcon} ${balance.message}</p>`;
+                }
+            }
+            
+            if (data.summary) {
+                detailsHtml += '<hr><h6>Résumé:</h6>';
+                detailsHtml += `<p><strong>Opérations réussies:</strong> ${data.summary.total_operations}</p>`;
+                detailsHtml += `<p><strong>Erreurs:</strong> ${data.summary.total_errors}</p>`;
+                detailsHtml += `<p><strong>Positions:</strong> ${data.summary.positions_count}</p>`;
+                detailsHtml += `<p><strong>Trades:</strong> ${data.summary.trades_count}</p>`;
+                detailsHtml += `<p><strong>Ordres:</strong> ${data.summary.orders_count}</p>`;
+            }
+            
+            detailsHtml += '</div>';
+            resultDiv.innerHTML = detailsHtml;
+            
+            // Notification de succès
+            alert(`✅ Synchronisation Saxo Bank réussie!\n\n${data.message}`);
+        } else {
+            resultDiv.innerHTML = `<div class="alert alert-danger">
+                <i class="fas fa-exclamation-triangle"></i> Erreur: ${data.error}
+            </div>`;
+            alert("❌ Erreur lors de la synchronisation Saxo: " + data.error);
+        }
+    })
+    .catch(error => {
+        console.error("❌ Erreur AJAX Saxo:", error);
+        resultDiv.innerHTML = `<div class="alert alert-danger">
+            <i class="fas fa-exclamation-triangle"></i> Erreur lors de la synchronisation Saxo
+        </div>`;
+        alert("❌ Erreur lors de la synchronisation Saxo");
+    })
+    .finally(() => {
+        // Restaurer le bouton
+        button.innerHTML = originalText;
+        button.disabled = false;
+            });
+}
+
+function forceRefreshSaxoTokens(brokerId) {
+    console.log("🔄 Refresh forcé des tokens Saxo Bank pour broker", brokerId);
+    const csrftoken = getCookie('csrftoken');
+    
+    // Afficher un indicateur de chargement
+    const button = event.target;
+    const originalText = button.innerHTML;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Refresh...';
+    button.disabled = true;
+    
+    // Créer une zone de résultats si elle n'existe pas
+    let resultDiv = document.getElementById('saxo-token-refresh-result');
+    if (!resultDiv) {
+        resultDiv = document.createElement('div');
+        resultDiv.id = 'saxo-token-refresh-result';
+        resultDiv.className = 'mt-3';
+        button.parentNode.parentNode.appendChild(resultDiv);
+    }
+    
+    resultDiv.innerHTML = '<div class="alert alert-info"><i class="fas fa-spinner fa-spin"></i> Refresh des tokens Saxo Bank en cours...</div>';
+    
+    fetch(`/brokers/${brokerId}/force-refresh-tokens/`, {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': csrftoken,
+            'Content-Type': 'application/x-www-form-urlencoded'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        console.log("✅ Réponse refresh tokens Saxo:", data);
+        
+        if (data.success) {
+            let detailsHtml = '<div class="alert alert-success">';
+            detailsHtml += `<h6><i class="fas fa-check"></i> ${data.message}</h6>`;
+            detailsHtml += `<p><strong>Broker:</strong> ${data.broker_name}</p>`;
+            detailsHtml += `<p><strong>Timestamp:</strong> ${new Date(data.timestamp).toLocaleString()}</p>`;
+            
+            if (data.previous_status && data.new_status) {
+                detailsHtml += '<hr><h6>Évolution du statut:</h6>';
+                detailsHtml += `<p><strong>Avant:</strong> ${data.previous_status.message} (${data.previous_status.expires_in})</p>`;
+                detailsHtml += `<p><strong>Après:</strong> ${data.new_status.message} (${data.new_status.expires_in})</p>`;
+            }
+            
+            detailsHtml += '</div>';
+            resultDiv.innerHTML = detailsHtml;
+            
+            // Notification de succès
+            alert(`✅ Refresh des tokens Saxo Bank réussi!\n\n${data.message}`);
+        } else {
+            resultDiv.innerHTML = `<div class="alert alert-danger">
+                <i class="fas fa-exclamation-triangle"></i> Erreur: ${data.error}
+                ${data.note ? '<br><strong>Note:</strong> ' + data.note : ''}
+            </div>`;
+            alert("❌ Erreur lors du refresh des tokens Saxo: " + data.error);
+        }
+    })
+    .catch(error => {
+        console.error("❌ Erreur AJAX refresh tokens Saxo:", error);
+        resultDiv.innerHTML = `<div class="alert alert-danger">
+            <i class="fas fa-exclamation-triangle"></i> Erreur lors du refresh des tokens Saxo
+        </div>`;
+        alert("❌ Erreur lors du refresh des tokens Saxo");
+    })
+    .finally(() => {
+        // Restaurer le bouton
+        button.innerHTML = originalText;
+        button.disabled = false;
     });
 }
 

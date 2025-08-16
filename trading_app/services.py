@@ -28,6 +28,39 @@ class BrokerService:
             credentials_dict
         )
     
+    def update_saxo_tokens(self, broker_credentials: BrokerCredentials, new_tokens: Dict[str, Any]) -> bool:
+        """Mettre à jour les tokens Saxo dans la base de données"""
+        try:
+            if broker_credentials.broker_type != 'saxo':
+                print("❌ Cette méthode est réservée aux brokers Saxo Bank")
+                return False
+            
+            # Mettre à jour les tokens
+            if 'access_token' in new_tokens:
+                broker_credentials.saxo_access_token = new_tokens['access_token']
+            
+            if 'refresh_token' in new_tokens:
+                broker_credentials.saxo_refresh_token = new_tokens['refresh_token']
+            
+            if 'expires_in' in new_tokens:
+                from datetime import datetime, timedelta
+                broker_credentials.saxo_token_expires_at = datetime.now() + timedelta(seconds=new_tokens['expires_in'])
+            
+            # Sauvegarder les modifications
+            broker_credentials.save(update_fields=[
+                'saxo_access_token', 
+                'saxo_refresh_token', 
+                'saxo_token_expires_at',
+                'updated_at'
+            ])
+            
+            print(f"✅ Tokens Saxo mis à jour pour {broker_credentials.name}")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Erreur mise à jour tokens Saxo: {e}")
+            return False
+    
     def sync_positions_from_broker(self, broker_credentials: BrokerCredentials) -> List[Position]:
         """Synchronise les positions depuis un broker"""
         print(f"🔄 Synchronisation des positions depuis {broker_credentials.broker_type}")

@@ -62,11 +62,33 @@
                             </button>
                             <div class="collapse navbar-collapse" id="navbarNav">
                                 <ul class="navbar-nav ms-auto">
-                                    <li class="nav-item">
-                                        <a class="nav-link" href="/admin/">
-                                            <i class="fas fa-cog"></i> Admin
-                                        </a>
-                                    </li>
+                                    {% if user.is_authenticated %}
+                                        <li class="nav-item dropdown">
+                                            <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button" data-bs-toggle="dropdown">
+                                                <i class="fas fa-user"></i> {{ user.username }}
+                                            </a>
+                                            <ul class="dropdown-menu dropdown-menu-end">
+                                                <li><a class="dropdown-item" href="/admin/">
+                                                    <i class="fas fa-cog me-2"></i> Admin
+                                                </a></li>
+                                                <li><hr class="dropdown-divider"></li>
+                                                <li><a class="dropdown-item" href="{% url 'logout' %}">
+                                                    <i class="fas fa-sign-out-alt me-2"></i> Déconnexion
+                                                </a></li>
+                                            </ul>
+                                        </li>
+                                    {% else %}
+                                        <li class="nav-item">
+                                            <a class="nav-link" href="{% url 'login' %}">
+                                                <i class="fas fa-sign-in-alt"></i> Connexion
+                                            </a>
+                                        </li>
+                                        <li class="nav-item">
+                                            <a class="nav-link" href="{% url 'register' %}">
+                                                <i class="fas fa-user-plus"></i> Inscription
+                                            </a>
+                                        </li>
+                                    {% endif %}
                                     <li class="nav-item">
                                         <a class="nav-link" href="/kenza/">
                                             <i class="fas fa-heart"></i> Kenza

@@ -26,7 +26,7 @@ class SaxoBroker(BrokerBase):
         # Configurer les URLs selon l'environnement
         if environment == 'live':
             self.base_url = "https://gateway.saxobank.com/openapi"
-            self.auth_url = "https://logonvalidation.net"
+            self.auth_url = "https://live.logonvalidation.net"
         else:  # simulation
             self.base_url = "https://gateway.saxobank.com/sim/openapi"
             self.auth_url = "https://sim.logonvalidation.net"
@@ -85,23 +85,65 @@ class SaxoBroker(BrokerBase):
             "client_secret": self.client_secret
         }
         
+        print(f"🔐 Authentification OAuth2 vers {token_url}")
+        print(f"🔑 Client ID: {self.client_id}")
+        print(f"🔑 Environment: {'LIVE' if 'live' in self.auth_url else 'SIMULATION'}")
+        
         try:
-            response = requests.post(token_url, data=data)
-            response.raise_for_status()
-            tokens = response.json()
+            response = requests.post(
+                token_url, 
+                data=data, 
+                timeout=30,
+                headers={
+                    'User-Agent': 'SaxoBroker/1.0',
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                }
+            )
             
-            self.access_token = tokens["access_token"]
-            self.refresh_token = tokens["refresh_token"]
-            self.token_expires_at = datetime.now() + timedelta(seconds=tokens["expires_in"])
+            print(f"📊 Status Code: {response.status_code}")
             
-            return True
+            if response.status_code in [200, 201]:  # ✅ Accepter 200 et 201
+                tokens = response.json()
+                print("✅ Authentification réussie, traitement des tokens...")
+                
+                self.access_token = tokens["access_token"]
+                self.refresh_token = tokens["refresh_token"]
+                self.token_expires_at = datetime.now() + timedelta(seconds=tokens["expires_in"])
+                
+                print(f"🔑 Access Token: {self.access_token[:20]}...")
+                print(f"🔑 Refresh Token: {self.refresh_token[:20]}...")
+                print(f"⏰ Expire dans: {tokens.get('expires_in', 'N/A')} secondes")
+                
+                return True
+            else:
+                print(f"❌ Erreur HTTP: {response.status_code}")
+                print(f"📄 Réponse: {response.text}")
+                return False
+                
+        except requests.exceptions.ConnectTimeout:
+            print(f"❌ Timeout de connexion vers {self.auth_url} (30s)")
+            return False
+        except requests.exceptions.ConnectionError as e:
+            print(f"❌ Erreur de connexion vers {self.auth_url}")
+            print(f"   Détail: {e}")
+            return False
+        except requests.exceptions.Timeout:
+            print(f"❌ Timeout de la requête vers {self.auth_url}")
+            return False
+        except requests.exceptions.RequestException as e:
+            print(f"❌ Erreur de requête vers {self.auth_url}")
+            print(f"   Détail: {e}")
+            return False
         except Exception as e:
-            print(f"Erreur d'authentification Saxo: {e}")
+            print(f"❌ Erreur inattendue lors de l'authentification: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def refresh_auth_token(self) -> bool:
-        """Rafraîchir le token d'authentification"""
+        """Rafraîchir le token d'authentification avec gestion d'erreur robuste"""
         if not self.refresh_token:
+            print("❌ Refresh token non disponible")
             return False
             
         token_url = f"{self.auth_url}/token"
@@ -112,19 +154,193 @@ class SaxoBroker(BrokerBase):
             "client_secret": self.client_secret
         }
         
+        print(f"🔄 Tentative de refresh vers {token_url}")
+        print(f"🔑 Client ID: {self.client_id}")
+        print(f"🔑 Environment: {'LIVE' if 'live' in self.auth_url else 'SIMULATION'}")
+        
         try:
-            response = requests.post(token_url, data=data)
-            response.raise_for_status()
-            tokens = response.json()
+            # Test de connectivité avec timeout et headers appropriés
+            response = requests.post(
+                token_url, 
+                data=data, 
+                timeout=30,
+                headers={
+                    'User-Agent': 'SaxoBroker/1.0',
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                }
+            )
             
+            print(f"📊 Status Code: {response.status_code}")
+            
+            if response.status_code in [200, 201]:  # ✅ Accepter 200 et 201
+                tokens = response.json()
+                print("✅ Refresh réussi, traitement des tokens...")
+            else:
+                print(f"❌ Erreur HTTP: {response.status_code}")
+                print(f"📄 Réponse: {response.text}")
+                return False
+            
+            # Mettre à jour les tokens en mémoire
             self.access_token = tokens["access_token"]
             self.refresh_token = tokens["refresh_token"]
             self.token_expires_at = datetime.now() + timedelta(seconds=tokens["expires_in"])
             
+            # Mettre à jour les tokens dans la base de données si possible
+            try:
+                from ..services import BrokerService
+                broker_service = BrokerService(self.user)
+                
+                # Récupérer les credentials depuis la base de données
+                from ..models import BrokerCredentials
+                broker_creds = BrokerCredentials.objects.filter(
+                    user=self.user,
+                    saxo_access_token=self.credentials.get('access_token')
+                ).first()
+                
+                if broker_creds:
+                    # Mettre à jour avec les nouveaux tokens
+                    new_tokens = {
+                        'access_token': tokens["access_token"],
+                        'refresh_token': tokens["refresh_token"],
+                        'expires_in': tokens["expires_in"]
+                    }
+                    broker_service.update_saxo_tokens(broker_creds, new_tokens)
+                    print("✅ Tokens mis à jour dans la base de données")
+                else:
+                    print("⚠️ Credentials non trouvés dans la base de données")
+                    
+            except Exception as e:
+                print(f"⚠️ Erreur mise à jour base de données: {e}")
+                # Continuer même si la mise à jour DB échoue
+            
             return True
-        except Exception as e:
-            print(f"Erreur de rafraîchissement Saxo: {e}")
+        except requests.exceptions.ConnectTimeout:
+            print(f"❌ Timeout de connexion vers {self.auth_url} (30s)")
             return False
+        except requests.exceptions.ConnectionError as e:
+            print(f"❌ Erreur de connexion vers {self.auth_url}")
+            print(f"   Détail: {e}")
+            return False
+        except requests.exceptions.Timeout:
+            print(f"❌ Timeout de la requête vers {self.auth_url}")
+            return False
+        except requests.exceptions.RequestException as e:
+            print(f"❌ Erreur de requête vers {self.auth_url}")
+            print(f"   Détail: {e}")
+            return False
+        except Exception as e:
+            print(f"❌ Erreur inattendue lors du refresh: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    def test_connectivity(self) -> Dict[str, Any]:
+        """Tester la connectivité vers les endpoints Saxo"""
+        results = {}
+        
+        # Test de connectivité vers l'endpoint d'authentification
+        try:
+            print(f"🔍 Test de connectivité vers {self.auth_url}")
+            response = requests.get(
+                f"{self.auth_url}/authorize", 
+                timeout=10,
+                headers={'User-Agent': 'SaxoBroker/1.0'}
+            )
+            results['auth_endpoint'] = {
+                'success': True,
+                'status_code': response.status_code,
+                'message': f"Connectivité OK vers {self.auth_url}"
+            }
+            print(f"✅ Endpoint d'authentification accessible: {response.status_code}")
+        except Exception as e:
+            results['auth_endpoint'] = {
+                'success': False,
+                'error': str(e),
+                'message': f"Erreur de connectivité vers {self.auth_url}"
+            }
+            print(f"❌ Endpoint d'authentification inaccessible: {e}")
+        
+        # Test de connectivité vers l'API principale
+        try:
+            print(f"🔍 Test de connectivité vers {self.base_url}")
+            response = requests.get(
+                f"{self.base_url}/port/v1/accounts/me", 
+                timeout=10,
+                headers={'User-Agent': 'SaxoBroker/1.0'}
+            )
+            results['api_endpoint'] = {
+                'success': True,
+                'status_code': response.status_code,
+                'message': f"Connectivité OK vers {self.base_url}"
+            }
+            print(f"✅ Endpoint API accessible: {response.status_code}")
+        except Exception as e:
+            results['api_endpoint'] = {
+                'success': False,
+                'error': str(e),
+                'message': f"Erreur de connectivité vers {self.base_url}"
+            }
+            print(f"❌ Endpoint API inaccessible: {e}")
+        
+        return results
+    
+    def check_token_status(self) -> Dict[str, Any]:
+        """Vérifier le statut du token d'authentification"""
+        try:
+            # Vérifier si on a un token
+            if not self.access_token:
+                return {
+                    'valid': False,
+                    'message': 'Aucun token disponible',
+                    'expires_in': 'N/A'
+                }
+            
+            # Gestion spéciale pour les tokens 24h
+            if self.access_token and self.refresh_token and self.access_token == self.refresh_token:
+                return {
+                    'valid': True,
+                    'message': 'Token 24h - pas d\'expiration',
+                    'expires_in': '24h (pas d\'expiration)'
+                }
+            
+            # Vérifier l'expiration
+            if self.token_expires_at:
+                now = datetime.now()
+                if now < self.token_expires_at:
+                    # Token valide, calculer le temps restant
+                    time_left = self.token_expires_at - now
+                    hours = int(time_left.total_seconds() // 3600)
+                    minutes = int((time_left.total_seconds() % 3600) // 60)
+                    
+                    if hours > 0:
+                        expires_in = f"{hours}h {minutes}m"
+                    else:
+                        expires_in = f"{minutes}m"
+                    
+                    return {
+                        'valid': True,
+                        'message': 'Token valide',
+                        'expires_in': expires_in
+                    }
+                else:
+                    return {
+                        'valid': False,
+                        'message': 'Token expiré',
+                        'expires_in': 'Expiré'
+                    }
+            else:
+                return {
+                    'valid': False,
+                    'message': 'Date d\'expiration inconnue',
+                    'expires_in': 'N/A'
+                }
+                
+        except Exception as e:
+            return {
+                'valid': False,
+                'message': f'Erreur vérification: {str(e)}',
+                'expires_in': 'N/A'
+            }
     
     def get_accounts(self) -> List[Dict[str, Any]]:
         """Récupérer les comptes de l'utilisateur"""

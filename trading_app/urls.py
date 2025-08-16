@@ -1,7 +1,15 @@
 from django.urls import path
 from . import views
+from . import auth_views
+from . import saxo_sync
 
 urlpatterns = [
+    # Authentification
+    path('login/', auth_views.login_view, name='login'),
+    path('register/', auth_views.register_view, name='register'),
+    path('logout/', auth_views.logout_view, name='logout'),
+    
+    # Pages principales
     path('', views.home, name='home'),
     path('brokers/', views.broker_dashboard, name='broker_dashboard'),
     path('brokers/config/', views.broker_config, name='broker_config'),
@@ -10,6 +18,8 @@ urlpatterns = [
     path('brokers/saxo/callback/', views.saxo_auth_callback, name='saxo_auth_callback'),
     path('brokers/<int:broker_id>/test/', views.test_broker_connection, name='test_broker_connection'),
     path('brokers/<int:broker_id>/sync/', views.sync_broker_data, name='sync_broker_data'),
+    path('brokers/<int:broker_id>/sync-saxo-complete/', saxo_sync.sync_saxo_complete, name='sync_saxo_complete'),
+    path('brokers/<int:broker_id>/force-refresh-tokens/', saxo_sync.force_refresh_saxo_tokens, name='force_refresh_saxo_tokens'),
     path('brokers/<int:broker_id>/sync-trades/', views.sync_saxo_trades, name='sync_saxo_trades'),
     path('brokers/<int:broker_id>/sync-positions/', views.sync_saxo_positions, name='sync_saxo_positions'),
     path('brokers/<int:broker_id>/order/', views.place_broker_order, name='place_broker_order'),
