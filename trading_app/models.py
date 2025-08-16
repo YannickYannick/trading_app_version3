@@ -226,6 +226,8 @@ class AssetTradable(models.Model):
         
         return None
 
+
+
 class BrokerCredentials(models.Model):
     """Modèle pour stocker les credentials des courtiers"""
     BROKER_CHOICES = [
@@ -247,6 +249,12 @@ class BrokerCredentials(models.Model):
     saxo_client_id = models.CharField(max_length=100, blank=True, null=True)
     saxo_client_secret = models.CharField(max_length=100, blank=True, null=True)
     saxo_redirect_uri = models.URLField(blank=True, null=True)
+    saxo_environment = models.CharField(
+        max_length=20, 
+        choices=[('live', 'Live'), ('simulation', 'Simulation')],
+        default='simulation',
+        verbose_name="Environnement Saxo"
+    )
     saxo_access_token = models.TextField(blank=True, null=True)
     saxo_refresh_token = models.TextField(blank=True, null=True)
     saxo_token_expires_at = models.DateTimeField(blank=True, null=True)
@@ -259,6 +267,14 @@ class BrokerCredentials(models.Model):
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    
+    # Configuration auto-refresh Saxo
+    auto_refresh_enabled = models.BooleanField(default=True, verbose_name="Auto-refresh activé")
+    auto_refresh_frequency = models.IntegerField(
+        default=45, 
+        verbose_name="Fréquence auto-refresh (minutes)",
+        help_text="Fréquence en minutes (15-55 min)"
+    )
     
     class Meta:
         unique_together = ['user', 'broker_type', 'name']
@@ -685,4 +701,31 @@ class PendingOrder(models.Model):
 #     """Met à jour la quantité de l'AssetTradable quand un trade change"""
 #     if instance.asset_tradable:
 #         instance.asset_tradable.update_quantity()
+
+
+class TokenRefreshHistory(models.Model):
+    """Historique des tentatives de refresh des tokens Saxo Bank"""
+    broker_credentials = models.ForeignKey(BrokerCredentials, on_delete=models.CASCADE, related_name='token_refresh_history')
+    refresh_attempted_at = models.DateTimeField(auto_now_add=True)
+    success = models.BooleanField(default=False)
+    new_access_token = models.TextField(blank=True, null=True)
+    new_refresh_token = models.TextField(blank=True, null=True)
+    expires_in_seconds = models.IntegerField(null=True, blank=True)
+    error_message = models.TextField(blank=True, null=True)
+    retry_count = models.IntegerField(default=0)
+    max_retries = models.IntegerField(default=5)
+    
+    class Meta:
+        ordering = ['-refresh_attempted_at']
+        verbose_name = "Historique Refresh Token"
+        verbose_name_plural = "Historiques Refresh Token"
+    
+    def __str__(self):
+        status = "✅ Succès" if self.success else f"❌ Échec (retry {self.retry_count}/{self.max_retries})"
+        return f"{self.broker_credentials.name} - {self.refresh_attempted_at.strftime('%d/%m/%Y %H:%M')} - {status}"
+    
+    def is_expired(self):
+        """Vérifier si l'entrée est plus ancienne que 30 jours"""
+        from datetime import datetime, timedelta
+        return self.refresh_attempted_at < datetime.now() - timedelta(days=30)
 

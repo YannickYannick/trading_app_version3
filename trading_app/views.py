@@ -4029,3 +4029,7 @@ def update_portfolio_quantities(request):
             'success': False,
             'error': str(e)
         })
+
+def portfolio_simulator(request):
+    """Vue pour le simulateur de portefeuille"""
+    return render(request, 'kenza/portfolio_simulator.html')

@@ -99,6 +99,33 @@
                             <i class="fas fa-history"></i> Trades
                         </button>
                     </div>
+                    
+                    <!-- Configuration Auto-Refresh pour Saxo -->
+                    {% if broker.broker_type == "saxo" %}
+                    <div class="mt-3 p-3 bg-light rounded">
+                        <h6><i class="fas fa-clock"></i> Configuration Auto-Refresh</h6>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="auto-refresh-{{ broker.id }}" 
+                                   {% if broker.auto_refresh_enabled %}checked{% endif %}
+                                   onchange="toggleAutoRefresh({{ broker.id }}, this.checked)">
+                            <label class="form-check-label" for="auto-refresh-{{ broker.id }}">
+                                Auto-refresh activé
+                            </label>
+                        </div>
+                        <div class="mt-2">
+                            <label for="frequency-{{ broker.id }}" class="form-label">
+                                Fréquence: <span id="frequency-value-{{ broker.id }}">{{ broker.auto_refresh_frequency }}</span> minutes
+                            </label>
+                            <input type="range" class="form-range" id="frequency-{{ broker.id }}" 
+                                   min="15" max="55" value="{{ broker.auto_refresh_frequency }}"
+                                   oninput="updateFrequency({{ broker.id }}, this.value)">
+                            <small class="text-muted">15-55 minutes</small>
+                        </div>
+                        <button class="btn btn-sm btn-outline-info mt-2" onclick="testAutoRefresh({{ broker.id }})">
+                            <i class="fas fa-play"></i> Tester Auto-Refresh
+                        </button>
+                    </div>
+                    {% endif %}
 
                     
                     <div class="mt-2">
@@ -544,6 +571,99 @@ function syncAllAssets() {
             button.innerHTML = originalText;
             button.disabled = false;
         }
+            });
+}
+
+// Fonctions pour la configuration Auto-Refresh
+function toggleAutoRefresh(brokerId, enabled) {
+    console.log(`🔄 Toggle auto-refresh pour broker ${brokerId}: ${enabled}`);
+    
+    fetch(`/brokers/${brokerId}/toggle-auto-refresh/`, {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': getCookie('csrftoken'),
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            enabled: enabled
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            console.log('✅ Auto-refresh configuré:', data.message);
+        } else {
+            console.error('❌ Erreur configuration auto-refresh:', data.error);
+            alert('Erreur lors de la configuration: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('❌ Erreur AJAX:', error);
+        alert('Erreur lors de la configuration');
+    });
+}
+
+function updateFrequency(brokerId, frequency) {
+    console.log(`🔄 Mise à jour fréquence pour broker ${brokerId}: ${frequency} minutes`);
+    
+    // Mettre à jour l'affichage
+    document.getElementById(`frequency-value-${brokerId}`).textContent = frequency;
+    
+    // Sauvegarder en base
+    fetch(`/brokers/${brokerId}/update-frequency/`, {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': getCookie('csrftoken'),
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            frequency: parseInt(frequency)
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            console.log('✅ Fréquence mise à jour:', data.message);
+        } else {
+            console.error('❌ Erreur mise à jour fréquence:', data.error);
+            alert('Erreur lors de la mise à jour: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('❌ Erreur AJAX:', error);
+        alert('Erreur lors de la mise à jour');
+    });
+}
+
+function testAutoRefresh(brokerId) {
+    console.log(`🧪 Test auto-refresh pour broker ${brokerId}`);
+    
+    const button = event.target;
+    const originalText = button.innerHTML;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Test...';
+    button.disabled = true;
+    
+    fetch(`/brokers/${brokerId}/test-auto-refresh/`, {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': getCookie('csrftoken')
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(`✅ Test auto-refresh réussi!\n\n${data.message}`);
+        } else {
+            alert(`❌ Test auto-refresh échoué:\n\n${data.error}`);
+        }
+    })
+    .catch(error => {
+        console.error('❌ Erreur test auto-refresh:', error);
+        alert('Erreur lors du test');
+    })
+    .finally(() => {
+        button.innerHTML = originalText;
+        button.disabled = false;
     });
 }
 

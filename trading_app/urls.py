@@ -2,6 +2,8 @@ from django.urls import path
 from . import views
 from . import auth_views
 from . import saxo_sync
+from . import auto_refresh_views
+from . import pwa_views
 
 urlpatterns = [
     # Authentification
@@ -21,6 +23,20 @@ urlpatterns = [
     path('brokers/<int:broker_id>/sync-saxo-complete/', saxo_sync.sync_saxo_complete, name='sync_saxo_complete'),
     path('brokers/<int:broker_id>/force-refresh-tokens/', saxo_sync.force_refresh_saxo_tokens, name='force_refresh_saxo_tokens'),
     path('brokers/<int:broker_id>/sync-trades/', views.sync_saxo_trades, name='sync_saxo_trades'),
+    
+    # URLs pour l'auto-refresh
+    path('brokers/<int:broker_id>/toggle-auto-refresh/', auto_refresh_views.toggle_auto_refresh, name='toggle_auto_refresh'),
+    path('brokers/<int:broker_id>/update-frequency/', auto_refresh_views.update_frequency, name='update_frequency'),
+    path('brokers/<int:broker_id>/test-auto-refresh/', auto_refresh_views.test_auto_refresh, name='test_auto_refresh'),
+    
+    # URLs PWA
+    path('pwa/manifest/', pwa_views.pwa_manifest, name='pwa_manifest'),
+    path('pwa/status/', pwa_views.pwa_status, name='pwa_status'),
+    path('pwa/offline/', pwa_views.pwa_offline, name='pwa_offline'),
+    path('pwa/subscribe/', pwa_views.subscribe_push_notifications, name='pwa_subscribe'),
+    path('pwa/unsubscribe/', pwa_views.unsubscribe_push_notifications, name='pwa_unsubscribe'),
+    path('pwa/test-notification/', pwa_views.send_test_notification, name='pwa_test_notification'),
+    
     path('brokers/<int:broker_id>/sync-positions/', views.sync_saxo_positions, name='sync_saxo_positions'),
     path('brokers/<int:broker_id>/order/', views.place_broker_order, name='place_broker_order'),
     
@@ -76,5 +92,6 @@ urlpatterns = [
     path('asset-tradable/update-all-saxo/', views.update_all_saxo_assets, name='update_all_saxo_assets'),
     path('asset-tradable/update-saxo-page/', views.update_saxo_assets_page, name='update_saxo_assets_page'),
     path('kenza/', views.kenza, name='kenza'),
+    path('kenza/simulateur/', views.portfolio_simulator, name='portfolio_simulator'),
     path('test/', views.test_page, name='test_page'),
 ]
