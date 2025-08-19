@@ -4,6 +4,7 @@ from . import auth_views
 from . import saxo_sync
 from . import auto_refresh_views
 from . import pwa_views
+from . import automation_views
 
 urlpatterns = [
     # Authentification
@@ -85,6 +86,16 @@ urlpatterns = [
     path('strategies/update-portfolio/', views.update_portfolio_quantities, name='update_portfolio_quantities'),
     path('strategies/execution-history/', views.execution_history, name='execution_history'),
     
+    # URLs pour l'automatisation
+    path('automation/status/', automation_views.automation_status, name='automation_status'),
+    path('automation/start/', automation_views.start_automation, name='start_automation'),
+    path('automation/stop/', automation_views.stop_automation, name='stop_automation'),
+    path('automation/pause/', automation_views.pause_automation, name='pause_automation'),
+    path('automation/resume/', automation_views.resume_automation, name='resume_automation'),
+    path('automation/frequency/', automation_views.update_frequency, name='update_frequency'),
+    path('automation/execute/', automation_views.execute_manual_cycle, name='execute_manual_cycle'),
+    path('automation/logs/', automation_views.automation_logs, name='automation_logs'),
+    
     path('order/place/', views.place_order_view, name='place_order_view'),
     
     path('asset-tradable/', views.asset_search_tabulator, name='asset_tradable_home'),  # Redirection vers la recherche
@@ -93,5 +104,6 @@ urlpatterns = [
     path('asset-tradable/update-saxo-page/', views.update_saxo_assets_page, name='update_saxo_assets_page'),
     path('kenza/', views.kenza, name='kenza'),
     path('kenza/simulateur/', views.portfolio_simulator, name='portfolio_simulator'),
+    path('api/historical-data/', views.get_historical_data_for_simulator, name='get_historical_data'),
     path('test/', views.test_page, name='test_page'),
 ]

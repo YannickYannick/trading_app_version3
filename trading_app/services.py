@@ -123,27 +123,35 @@ class BrokerService:
                             }
                         )
                         
-                        # Récupérer ou créer la Position
-                        position, created = Position.objects.get_or_create(
+                        # Pour Binance, utiliser le nom complet de l'AssetTradable comme ID de position
+                        broker_position_id = asset_symbol #f"{asset_tradable.name} ({asset_tradable.platform})"
+                        print("bAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF")
+                        print(asset_symbol)
+                        print(asset_tradable.name, asset_tradable.platform)
+                        # Vérifier si cette position existe déjà par son ID broker
+                        existing_position = Position.objects.filter(
                             user=broker_credentials.user,
-                            asset_tradable=asset_tradable,
-                            defaults={
-                                'size': Decimal(str(position_size)),
-                                'entry_price': Decimal('0.0'),  # Pas de prix d'entrée pour les balances
-                                'current_price': Decimal('0.0'),  # À récupérer si nécessaire
-                                'side': 'BUY',  # Par défaut pour les balances
-                                'status': 'OPEN',
-                                'pnl': Decimal('0.0'),
-                            }
-                        )
+                            broker_position_id=broker_position_id
+                        ).first()
                         
-                        if not created:
-                            # Mise à jour si la position existe déjà
-                            position.size = Decimal(str(position_size))
-                            position.save()
-                        
-                        positions.append(position)
-                        print(f"✅ Position Binance synchronisée: {asset_symbol} {position_size}")
+                        if existing_position:
+                            # Position existe déjà, on l'ignore
+                            print(f"ℹ️ Position Binance existante ignorée: {asset_symbol} {position_size}")
+                        else:
+                            # Nouvelle position, la créer
+                            position = Position.objects.create(
+                                user=broker_credentials.user,
+                                asset_tradable=asset_tradable,
+                                broker_position_id=broker_position_id,
+                                size=Decimal(str(position_size)),
+                                entry_price=Decimal('0.0'),  # Pas de prix d'entrée pour les balances
+                                current_price=Decimal('0.0'),  # À récupérer si nécessaire
+                                side='BUY',  # Par défaut pour les balances
+                                status='OPEN',
+                                pnl=Decimal('0.0'),
+                            )
+                            positions.append(position)
+                            print(f"✅ Nouvelle position Binance créée: {asset_symbol} {position_size} (ID: {broker_position_id})")
                         
                     else:
                         # Gestion pour les autres brokers (Saxo, etc.)
@@ -177,32 +185,53 @@ class BrokerService:
                         
                         # Pour Saxo, créer un AssetTradable unique avec suffixe pour chaque position
                         if broker_credentials.broker_type == 'saxo':
-                            # Pour Saxo, créer UN SEUL AssetTradable par AllAssets (pas par position)
-                            # Utiliser le symbole original sans suffixe pour l'AssetTradable
-                            asset_tradable, _ = AssetTradable.objects.get_or_create(
-                                symbol=original_symbol.upper(),  # Utiliser le symbole original, pas unique_symbol
-                                platform=broker_credentials.broker_type,
-                                defaults={
-                                    'all_asset': all_asset,
-                                    'name': pos_data.get('name', original_symbol),
-                                    'asset_type': asset_type,
-                                    'market': market,
-                                }
-                            )
+                            # Récupérer le SourceOrderId pour Saxo depuis les données formatées
+                            broker_position_id = pos_data.get('SourceOrderId')
+                            if not broker_position_id:
+                                print(f"⚠️ SourceOrderId manquant pour la position Saxo {original_symbol}, ignorée")
+                                continue
                             
-                            # Créer une nouvelle position liée au même AssetTradable
-                            position = Position.objects.create(
+                            # Vérifier si cette position existe déjà par son ID broker
+                            existing_position = Position.objects.filter(
                                 user=broker_credentials.user,
-                                asset_tradable=asset_tradable,  # Toutes les positions utilisent le même AssetTradable
-                                size=Decimal(str(pos_data.get('size', 0))),
-                                entry_price=Decimal(str(pos_data.get('entry_price', 0))),
-                                current_price=Decimal(str(pos_data.get('current_price', 0))),
-                                side=pos_data.get('side', 'BUY'),
-                                status=pos_data.get('status', 'OPEN'),
-                                pnl=Decimal(str(pos_data.get('pnl', 0))),
-                            )
+                                broker_position_id=broker_position_id
+                            ).first()
+                            
+                            if existing_position:
+                                # Position existe déjà, on l'ignore
+                                print(f"ℹ️ Position Saxo existante ignorée: {original_symbol} (ID: {broker_position_id})")
+                            else:
+                                # Pour Saxo, créer UN SEUL AssetTradable par AllAssets (pas par position)
+                                # Utiliser le symbole original sans suffixe pour l'AssetTradable
+                                asset_tradable, _ = AssetTradable.objects.get_or_create(
+                                    symbol=original_symbol.upper(),  # Utiliser le symbole original, pas unique_symbol
+                                    platform=broker_credentials.broker_type,
+                                    defaults={
+                                        'all_asset': all_asset,
+                                        'name': pos_data.get('name', original_symbol),
+                                        'asset_type': asset_type,
+                                        'market': market,
+                                    }
+                                )
+                                
+                                # Créer une nouvelle position liée au même AssetTradable
+                                # Utiliser les données formatées par le broker Saxo
+                                position = Position.objects.create(
+                                    user=broker_credentials.user,
+                                    asset_tradable=asset_tradable,  # Toutes les positions utilisent le même AssetTradable
+                                    broker_position_id=broker_position_id,
+                                    size=Decimal(str(pos_data.get('size', 0))),
+                                    entry_price=Decimal(str(pos_data.get('entry_price', 0))),
+                                    current_price=Decimal(str(pos_data.get('current_price', 0))),
+                                    side=pos_data.get('side', 'BUY'),
+                                    status=pos_data.get('status', 'OPEN'),
+                                    pnl=Decimal(str(pos_data.get('pnl', 0))),
+                                )
+                                positions.append(position)
+                                print(f"✅ Nouvelle position Saxo créée: {original_symbol} (ID: {broker_position_id})")
                         else:
                             # Pour les autres brokers, utiliser la logique existante
+                            # Créer d'abord l'AssetTradable pour avoir accès à son nom
                             asset_tradable, _ = AssetTradable.objects.get_or_create(
                                 symbol=original_symbol.upper(),
                                 platform=broker_credentials.broker_type,
@@ -214,32 +243,33 @@ class BrokerService:
                                 }
                             )
                             
-                            # Récupérer ou créer la Position
-                            position, created = Position.objects.get_or_create(
+                            # Utiliser le nom complet de l'AssetTradable comme ID de position
+                            broker_position_id = f"{asset_tradable.name} ({asset_tradable.platform})"
+                            
+                            # Vérifier si cette position existe déjà par son ID broker
+                            existing_position = Position.objects.filter(
                                 user=broker_credentials.user,
-                                asset_tradable=asset_tradable,
-                                defaults={
-                                    'size': Decimal(str(pos_data.get('size', 0))),
-                                    'entry_price': Decimal(str(pos_data.get('entry_price', 0))),
-                                    'current_price': Decimal(str(pos_data.get('current_price', 0))),
-                                    'side': pos_data.get('side', 'BUY'),
-                                    'status': pos_data.get('status', 'OPEN'),
-                                    'pnl': Decimal(str(pos_data.get('pnl', 0))),
-                                }
-                            )
+                                broker_position_id=broker_position_id
+                            ).first()
                             
-                            # Pour Saxo, on ne fait pas de mise à jour car on crée toujours de nouvelles positions
-                            # Pour les autres brokers, mettre à jour si la position existe déjà
-                            if broker_credentials.broker_type != 'saxo' and not created:
-                                position.size = Decimal(str(pos_data.get('size', 0)))
-                                position.entry_price = Decimal(str(pos_data.get('entry_price', 0)))
-                                position.current_price = Decimal(str(pos_data.get('current_price', 0)))
-                                position.side = pos_data.get('side', 'BUY')
-                                position.status = pos_data.get('status', 'OPEN')
-                                position.pnl = Decimal(str(pos_data.get('pnl', 0)))
-                                position.save()
-                            
-                            positions.append(position)
+                            if existing_position:
+                                # Position existe déjà, on l'ignore
+                                print(f"ℹ️ Position {broker_credentials.broker_type} existante ignorée: {original_symbol}")
+                            else:
+                                # Créer une nouvelle position
+                                position = Position.objects.create(
+                                    user=broker_credentials.user,
+                                    asset_tradable=asset_tradable,
+                                    broker_position_id=broker_position_id,
+                                    size=Decimal(str(pos_data.get('size', 0))),
+                                    entry_price=Decimal(str(pos_data.get('entry_price', 0))),
+                                    current_price=Decimal(str(pos_data.get('current_price', 0))),
+                                    side=pos_data.get('side', 'BUY'),
+                                    status=pos_data.get('status', 'OPEN'),
+                                    pnl=Decimal(str(pos_data.get('pnl', 0))),
+                                )
+                                positions.append(position)
+                                print(f"✅ Nouvelle position {broker_credentials.broker_type} créée: {original_symbol} (ID: {broker_position_id})")
                         
                 except Exception as e:
                     print(f"❌ Erreur traitement position {pos_data}: {e}")

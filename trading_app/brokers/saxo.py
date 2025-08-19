@@ -418,7 +418,8 @@ class SaxoBroker(BrokerBase):
                             'sector': 'Unknown',
                             'industry': 'Unknown',
                             'market_cap': 0.0,
-                            'price_history': 'xxxx'
+                            'price_history': 'xxxx',
+                            'SourceOrderId': base.get("SourceOrderId")  # Ajouter l'ID unique de la position
                         }
                         
                         formatted_positions.append(formatted_position)

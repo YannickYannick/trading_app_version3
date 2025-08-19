@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import AssetType, Market, AssetTradable, Asset, Position, Trade, Strategy, BrokerCredentials, AllAssets, PendingOrder, TokenRefreshHistory
+from .models import AssetType, Market, AssetTradable, Asset, Position, Trade, Strategy, BrokerCredentials, AllAssets, PendingOrder, TokenRefreshHistory, AutomationConfig, AutomationExecutionLog
 
 admin.site.register(AssetType)
 admin.site.register(Market)
@@ -61,6 +61,48 @@ class BrokerCredentialsAdmin(admin.ModelAdmin):
         }),
         ('Métadonnées', {
             'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        })
+    )
+
+@admin.register(AutomationConfig)
+class AutomationConfigAdmin(admin.ModelAdmin):
+    """Admin pour la configuration de l'automatisation"""
+    list_display = ['user', 'is_active', 'frequency_minutes', 'last_execution', 'next_execution', 'created_at']
+    list_filter = ['is_active', 'frequency_minutes', 'created_at']
+    search_fields = ['user__username']
+    readonly_fields = ['last_execution', 'next_execution', 'created_at', 'updated_at']
+    ordering = ['-created_at']
+    
+    fieldsets = (
+        ('Configuration', {
+            'fields': ('user', 'is_active', 'frequency_minutes')
+        }),
+        ('Exécution', {
+            'fields': ('last_execution', 'next_execution'),
+            'classes': ('collapse',)
+        }),
+        ('Métadonnées', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        })
+    )
+
+@admin.register(AutomationExecutionLog)
+class AutomationExecutionLogAdmin(admin.ModelAdmin):
+    """Admin pour l'historique des exécutions d'automatisation"""
+    list_display = ['user', 'execution_time', 'status', 'execution_duration']
+    list_filter = ['status', 'user', 'execution_time']
+    search_fields = ['user__username', 'summary', 'errors']
+    readonly_fields = ['execution_time']
+    ordering = ['-execution_time']
+    
+    fieldsets = (
+        ('Informations générales', {
+            'fields': ('user', 'execution_time', 'status', 'execution_duration')
+        }),
+        ('Résultats', {
+            'fields': ('summary', 'api_responses', 'errors'),
             'classes': ('collapse',)
         })
     )

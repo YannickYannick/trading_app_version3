@@ -3,6 +3,7 @@ from django.contrib.auth.models import User
 from decimal import Decimal
 from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
+from datetime import timedelta
 
 # Choix pour les plateformes
 BROKER_CHOICES = [
@@ -572,6 +573,7 @@ class Position(models.Model):
     """Modèle pour les positions"""
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     asset_tradable = models.ForeignKey(AssetTradable, on_delete=models.CASCADE)
+    broker_position_id = models.CharField(max_length=20, help_text="ID unique de la position chez le broker")
     size = models.DecimalField(max_digits=15, decimal_places=2)
     entry_price = models.DecimalField(max_digits=15, decimal_places=5)
     current_price = models.DecimalField(max_digits=15, decimal_places=5)
@@ -728,4 +730,47 @@ class TokenRefreshHistory(models.Model):
         """Vérifier si l'entrée est plus ancienne que 30 jours"""
         from datetime import datetime, timedelta
         return self.refresh_attempted_at < datetime.now() - timedelta(days=30)
+
+class AutomationConfig(models.Model):
+    """Configuration de l'automatisation des tâches"""
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    is_active = models.BooleanField(default=False, help_text="Activer/désactiver l'automatisation")
+    frequency_minutes = models.IntegerField(default=30, help_text="Fréquence en minutes")
+    last_execution = models.DateTimeField(null=True, blank=True, help_text="Dernière exécution")
+    next_execution = models.DateTimeField(null=True, blank=True, help_text="Prochaine exécution programmée")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        unique_together = ['user']
+    
+    def __str__(self):
+        return f"Automatisation {self.user.username} - {'Actif' if self.is_active else 'Inactif'} ({self.frequency_minutes}min)"
+    
+    def calculate_next_execution(self):
+        """Calcule la prochaine exécution basée sur la fréquence"""
+        from django.utils import timezone
+        if self.last_execution:
+            return self.last_execution + timedelta(minutes=self.frequency_minutes)
+        return timezone.now() + timedelta(minutes=self.frequency_minutes)
+
+class AutomationExecutionLog(models.Model):
+    """Historique des exécutions de l'automatisation"""
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    execution_time = models.DateTimeField(auto_now_add=True)
+    status = models.CharField(max_length=20, choices=[
+        ('SUCCESS', 'Succès'),
+        ('PARTIAL', 'Partiel'),
+        ('FAILED', 'Échec')
+    ])
+    summary = models.TextField(help_text="Résumé des actions effectuées")
+    api_responses = models.TextField(help_text="Réponses des APIs")
+    errors = models.TextField(blank=True, help_text="Erreurs rencontrées")
+    execution_duration = models.DurationField(null=True, blank=True)
+    
+    class Meta:
+        ordering = ['-execution_time']
+    
+    def __str__(self):
+        return f"Exécution {self.user.username} - {self.status} - {self.execution_time}"
 

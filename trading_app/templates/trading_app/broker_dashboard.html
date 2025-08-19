@@ -27,6 +27,58 @@
         </div>
     </div>
 
+    <!-- Section Automatisation -->
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5><i class="fas fa-robot"></i> Automatisation des Tâches</h5>
+            <div class="btn-group" role="group">
+                <button type="button" class="btn btn-success" id="startAutomationBtn" onclick="startAutomation()" style="display: none;">
+                    <i class="fas fa-play"></i> Démarrer
+                </button>
+                <button type="button" class="btn btn-warning" id="pauseAutomationBtn" onclick="pauseAutomation()" style="display: none;">
+                    <i class="fas fa-pause"></i> Pause
+                </button>
+                <button type="button" class="btn btn-danger" id="stopAutomationBtn" onclick="stopAutomation()" style="display: none;">
+                    <i class="fas fa-stop"></i> Arrêter
+                </button>
+                <button type="button" class="btn btn-info" onclick="executeManualCycle()">
+                    <i class="fas fa-bolt"></i> Exécuter Maintenant
+                </button>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6">
+                    <h6>Configuration</h6>
+                    <div class="mb-3">
+                        <label for="frequencySlider" class="form-label">Fréquence d'exécution: <span id="frequencyValue">30</span> minutes</label>
+                        <input type="range" class="form-range" id="frequencySlider" min="5" max="120" value="30" step="5" onchange="updateFrequency(this.value)">
+                        <small class="text-muted">Entre 5 et 120 minutes</small>
+                    </div>
+                    <div class="mb-3">
+                        <strong>Statut:</strong> <span id="automationStatus" class="badge bg-secondary">Chargement...</span>
+                    </div>
+                    <div class="mb-3">
+                        <strong>Dernière exécution:</strong> <span id="lastExecution">-</span>
+                    </div>
+                    <div class="mb-3">
+                        <strong>Prochaine exécution:</strong> <span id="nextExecution">-</span>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <h6>Actions Automatisées</h6>
+                    <ul class="list-unstyled">
+                        <li><i class="fas fa-sync text-primary"></i> Synchronisation Binance (Positions + Trades)</li>
+                        <li><i class="fas fa-sync text-primary"></i> Synchronisation Saxo (Positions + Trades + Refresh Tokens)</li>
+                        <li><i class="fas fa-rocket text-success"></i> Exécution des Stratégies Actives</li>
+                        <li><i class="fas fa-bell text-info"></i> Notifications Telegram (3 messages)</li>
+                    </ul>
+                </div>
+            </div>
+            <div id="automation-result" class="mt-3"></div>
+        </div>
+    </div>
+
     <!-- Section Synchronisation des Actifs -->
     <div class="card mb-4">
         <div class="card-header d-flex justify-content-between align-items-center">
@@ -665,6 +717,272 @@ function testAutoRefresh(brokerId) {
         button.innerHTML = originalText;
         button.disabled = false;
     });
+}
+
+// Fonctions pour l'Automatisation
+let automationStatus = null;
+
+// Charger le statut de l'automatisation au chargement de la page
+document.addEventListener('DOMContentLoaded', function() {
+    loadAutomationStatus();
+});
+
+function loadAutomationStatus() {
+    console.log('🔄 Chargement du statut de l\'automatisation...');
+    
+    fetch('/automation/status/')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                automationStatus = data.status;
+                updateAutomationUI();
+            } else {
+                console.error('❌ Erreur chargement statut:', data.error);
+            }
+        })
+        .catch(error => {
+            console.error('❌ Erreur AJAX:', error);
+        });
+}
+
+function updateAutomationUI() {
+    if (!automationStatus) return;
+    
+    // Mettre à jour le slider de fréquence
+    document.getElementById('frequencySlider').value = automationStatus.frequency_minutes;
+    document.getElementById('frequencyValue').textContent = automationStatus.frequency_minutes;
+    
+    // Mettre à jour le statut
+    const statusElement = document.getElementById('automationStatus');
+    if (automationStatus.is_active) {
+        statusElement.textContent = 'Actif';
+        statusElement.className = 'badge bg-success';
+        showActiveButtons();
+    } else {
+        statusElement.textContent = 'Inactif';
+        statusElement.className = 'badge bg-secondary';
+        showInactiveButtons();
+    }
+    
+    // Mettre à jour les temps d'exécution
+    if (automationStatus.last_execution) {
+        const lastExec = new Date(automationStatus.last_execution);
+        document.getElementById('lastExecution').textContent = lastExec.toLocaleString('fr-FR');
+    }
+    
+    if (automationStatus.next_execution) {
+        const nextExec = new Date(automationStatus.next_execution);
+        document.getElementById('nextExecution').textContent = nextExec.toLocaleString('fr-FR');
+    }
+}
+
+function showActiveButtons() {
+    document.getElementById('startAutomationBtn').style.display = 'none';
+    document.getElementById('pauseAutomationBtn').style.display = 'inline-block';
+    document.getElementById('stopAutomationBtn').style.display = 'inline-block';
+}
+
+function showInactiveButtons() {
+    document.getElementById('startAutomationBtn').style.display = 'inline-block';
+    document.getElementById('pauseAutomationBtn').style.display = 'none';
+    document.getElementById('stopAutomationBtn').style.display = 'none';
+}
+
+function startAutomation() {
+    console.log('🚀 Démarrage de l\'automatisation...');
+    
+    fetch('/automation/start/', {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': getCookie('csrftoken')
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            console.log('✅ Automatisation démarrée:', data.message);
+            loadAutomationStatus(); // Recharger le statut
+            showSuccessMessage('Automatisation démarrée avec succès !');
+        } else {
+            console.error('❌ Erreur démarrage:', data.error);
+            showErrorMessage('Erreur lors du démarrage: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('❌ Erreur AJAX:', error);
+        showErrorMessage('Erreur lors du démarrage');
+    });
+}
+
+function pauseAutomation() {
+    console.log('⏸️ Mise en pause de l\'automatisation...');
+    
+    fetch('/automation/pause/', {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': getCookie('csrftoken')
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            console.log('✅ Automatisation mise en pause:', data.message);
+            loadAutomationStatus();
+            showSuccessMessage('Automatisation mise en pause');
+        } else {
+            console.error('❌ Erreur pause:', data.error);
+            showErrorMessage('Erreur lors de la pause: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('❌ Erreur AJAX:', error);
+        showErrorMessage('Erreur lors de la pause');
+    });
+}
+
+function stopAutomation() {
+    console.log('🛑 Arrêt de l\'automatisation...');
+    
+    if (!confirm('Êtes-vous sûr de vouloir arrêter l\'automatisation ?')) {
+        return;
+    }
+    
+    fetch('/automation/stop/', {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': getCookie('csrftoken')
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            console.log('✅ Automatisation arrêtée:', data.message);
+            loadAutomationStatus();
+            showSuccessMessage('Automatisation arrêtée');
+        } else {
+            console.error('❌ Erreur arrêt:', data.error);
+            showErrorMessage('Erreur lors de l\'arrêt: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('❌ Erreur AJAX:', error);
+        showErrorMessage('Erreur lors de l\'arrêt');
+    });
+}
+
+function updateFrequency(value) {
+    console.log('🔄 Mise à jour de la fréquence:', value, 'minutes');
+    
+    document.getElementById('frequencyValue').textContent = value;
+    
+    fetch('/automation/frequency/', {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': getCookie('csrftoken'),
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            frequency_minutes: parseInt(value)
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            console.log('✅ Fréquence mise à jour:', data.message);
+            showSuccessMessage('Fréquence mise à jour: ' + value + ' minutes');
+        } else {
+            console.error('❌ Erreur mise à jour fréquence:', data.error);
+            showErrorMessage('Erreur lors de la mise à jour: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('❌ Erreur AJAX:', error);
+        showErrorMessage('Erreur lors de la mise à jour');
+    });
+}
+
+function executeManualCycle() {
+    console.log('⚡ Exécution manuelle du cycle d\'automatisation...');
+    
+    const button = event.target;
+    const originalText = button.innerHTML;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Exécution...';
+    button.disabled = true;
+    
+    fetch('/automation/execute/', {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': getCookie('csrftoken')
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            console.log('✅ Cycle exécuté:', data.message);
+            showSuccessMessage('Cycle d\'automatisation exécuté avec succès !');
+            
+            // Afficher les résultats
+            displayAutomationResults(data.results);
+            
+            // Recharger le statut
+            loadAutomationStatus();
+        } else {
+            console.error('❌ Erreur exécution:', data.error);
+            showErrorMessage('Erreur lors de l\'exécution: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('❌ Erreur AJAX:', error);
+        showErrorMessage('Erreur lors de l\'exécution');
+    })
+    .finally(() => {
+        button.innerHTML = originalText;
+        button.disabled = false;
+    });
+}
+
+function displayAutomationResults(results) {
+    const resultDiv = document.getElementById('automation-result');
+    
+    let html = '<div class="alert alert-info">';
+    html += '<h6><i class="fas fa-info-circle"></i> Résultats de l\'exécution</h6>';
+    
+    if (results.summary && results.summary.length > 0) {
+        html += '<div class="mb-2"><strong>Résumé:</strong><ul>';
+        results.summary.forEach(item => {
+            html += `<li>${item}</li>`;
+        });
+        html += '</ul></div>';
+    }
+    
+    if (results.api_responses && results.api_responses.length > 0) {
+        html += '<div class="mb-2"><strong>Réponses API:</strong><ul>';
+        results.api_responses.forEach(item => {
+            html += `<li>${item}</li>`;
+        });
+        html += '</ul></div>';
+    }
+    
+    if (results.errors && results.errors.length > 0) {
+        html += '<div class="mb-2"><strong>Erreurs:</strong><ul class="text-danger">';
+        results.errors.forEach(item => {
+            html += `<li>${item}</li>`;
+        });
+        html += '</ul></div>';
+    }
+    
+    html += '</div>';
+    resultDiv.innerHTML = html;
+}
+
+function showSuccessMessage(message) {
+    const resultDiv = document.getElementById('automation-result');
+    resultDiv.innerHTML = `<div class="alert alert-success">✅ ${message}</div>`;
+}
+
+function showErrorMessage(message) {
+    const resultDiv = document.getElementById('automation-result');
+    resultDiv.innerHTML = `<div class="alert alert-danger">❌ ${message}</div>`;
 }
 
 </script>

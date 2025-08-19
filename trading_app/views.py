@@ -817,7 +817,7 @@ def execute_strategy(request, strategy_id):
                     print(f"🎯 Quantité calculée automatiquement: {order_size}")
                 else:
                     # Fallback sur la quantité par défaut des paramètres
-                    order_size = strategy.parameters.get('order_size', 1.0)
+                    order_size = strategy.target_min_quantity
                     print(f"⚠️ Utilisation quantité par défaut: {order_size}")
                 
                 side = 'BUY' if signal_result['signal'] == 'BUY' else 'SELL'
@@ -3247,11 +3247,26 @@ def binance_positions_ajax(request):
                 position_side = 'BUY'  # Par défaut pour les balances
                 
                 position_key = (asset_symbol, position_side, position_size)
-                
-                if position_key not in existing_positions_set and position_size > 0:
+                print("Vérification de position_key dans Position_obj...")
+                Position_obj = Position.objects.filter(user=request.user)
+                print("position_key:", position_key[0])
+                print("Nombre de positions:", Position_obj.count())
+
+                # Méthode recommandée : vérification avec exists()
+                #if Position_obj.filter(broker_position_id=position_key[0]).exists():  # Adaptez "id" au champ que vous voulez
+                if Position_obj.filter(asset_tradable__symbol=position_key[0]).exists():
+
+                    print(f"position_key {position_key} existe dans Position_obj")
+                else:
+                    print(f"position_key {position_key} n'existe pas dans Position_obj")
+
+                print(existing_positions_set)
+                #if position_key not in existing_positions_set and position_size > 0:
+                if not Position_obj.filter(asset_tradable__symbol=position_key[0]).exists() and position_size > 0:
                     position = Position.objects.create(
                         user=request.user,
                         asset_tradable=asset_tradable,
+                        broker_position_id= f"{asset_tradable.name} ({asset_tradable.platform})",
                         size=position_size,
                         entry_price=0.0,  # Pas de prix d'entrée pour les balances
                         current_price=0.0,  # À récupérer si nécessaire
@@ -3259,6 +3274,7 @@ def binance_positions_ajax(request):
                         status='OPEN',
                         pnl=0.0
                     )
+
                     saved_count += 1
                     print(f"✅ Nouvelle position sauvegardée: {asset_symbol} {position_side} {position_size}")
                 else:
@@ -4033,3 +4049,118 @@ def update_portfolio_quantities(request):
 def portfolio_simulator(request):
     """Vue pour le simulateur de portefeuille"""
     return render(request, 'kenza/portfolio_simulator.html')
+
+def get_historical_data_for_simulator(request):
+    """API pour récupérer les données historiques d'un ticker pour le simulateur"""
+    if request.method == 'GET':
+        ticker = request.GET.get('ticker', '').strip()
+        years = int(request.GET.get('years', 5))
+        
+        if not ticker:
+            return JsonResponse({'error': 'Ticker requis'}, status=400)
+        
+        try:
+            # Détecter si c'est une crypto ou une action
+            is_crypto = any(crypto in ticker.upper() for crypto in ['BTC', 'ETH', 'SOL', 'AVAX', 'BNB', 'ADA', 'DOT', 'LINK', 'UNI', 'MATIC'])
+            
+            if is_crypto:
+                # Utiliser CoinGecko pour les cryptos
+                data = get_crypto_data(ticker)
+                if data and 'price_history' in data:
+                    # Convertir les données CoinGecko en format mensuel
+                    monthly_data = convert_crypto_to_monthly(data['price_history'], years)
+                    return JsonResponse({
+                        'ticker': ticker,
+                        'type': 'crypto',
+                        'data': monthly_data,
+                        'current_price': data.get('current_price', 0)
+                    })
+                else:
+                    return JsonResponse({'error': 'Impossible de récupérer les données crypto'}, status=500)
+            else:
+                # Utiliser Yahoo Finance pour les actions
+                data = get_yahoo_data(ticker)
+                if data and 'price_history' in data:
+                    # Convertir les données Yahoo en format mensuel
+                    monthly_data = convert_yahoo_to_monthly(data['price_history'], years)
+                    return JsonResponse({
+                        'ticker': ticker,
+                        'type': 'stock',
+                        'data': monthly_data,
+                        'current_price': data.get('current_price', 0)
+                    })
+                else:
+                    return JsonResponse({'error': 'Impossible de récupérer les données actions'}, status=500)
+                    
+        except Exception as e:
+            print(f"❌ Erreur lors de la récupération des données pour {ticker}: {e}")
+            return JsonResponse({'error': f'Erreur: {str(e)}'}, status=500)
+    
+    return JsonResponse({'error': 'Méthode non autorisée'}, status=405)
+
+def convert_crypto_to_monthly(price_history, years):
+    """Convertit les données crypto en données mensuelles"""
+    try:
+        # Les données CoinGecko sont déjà en format quotidien
+        # On les regroupe par mois
+        monthly_data = []
+        months_needed = years * 12
+        
+        # Trier par date (du plus ancien au plus récent)
+        sorted_data = sorted(price_history, key=lambda x: x['date'])
+        
+        # Prendre un point par mois
+        step = max(1, len(sorted_data) // months_needed)
+        
+        for i in range(0, len(sorted_data), step):
+            if len(monthly_data) >= months_needed:
+                break
+            monthly_data.append({
+                'date': sorted_data[i]['date'],
+                'price': sorted_data[i]['close']
+            })
+        
+        return monthly_data
+        
+    except Exception as e:
+        print(f"❌ Erreur conversion crypto: {e}")
+        return []
+
+def convert_yahoo_to_monthly(price_history, years):
+    """Convertit les données Yahoo en données mensuelles"""
+    try:
+        import json
+        
+        # Les données Yahoo sont stockées comme JSON string, il faut les décoder
+        if isinstance(price_history, str):
+            price_history = json.loads(price_history)
+        
+        print(f"🔍 Conversion Yahoo: {len(price_history)} points de données")
+        
+        # Les données Yahoo sont déjà en format hebdomadaire
+        # On les regroupe par mois
+        monthly_data = []
+        months_needed = years * 12
+        
+        # Trier par date (du plus ancien au plus récent)
+        sorted_data = sorted(price_history, key=lambda x: x['date'])
+        
+        # Prendre un point par mois
+        step = max(1, len(sorted_data) // months_needed)
+        
+        for i in range(0, len(sorted_data), step):
+            if len(monthly_data) >= months_needed:
+                break
+            monthly_data.append({
+                'date': sorted_data[i]['date'],
+                'price': sorted_data[i]['close']
+            })
+        
+        print(f"✅ Conversion Yahoo réussie: {len(monthly_data)} points mensuels")
+        return monthly_data
+        
+    except Exception as e:
+        print(f"❌ Erreur conversion Yahoo: {e}")
+        print(f"🔍 Type de price_history: {type(price_history)}")
+        print(f"🔍 Contenu: {price_history[:100] if isinstance(price_history, str) else str(price_history)[:100]}")
+        return []

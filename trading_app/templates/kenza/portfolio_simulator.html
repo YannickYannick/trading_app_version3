@@ -6,7 +6,10 @@
     <title>Simulateur de Portefeuille - Kenza</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+            <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
     <style>
         body {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -168,10 +171,10 @@
                         </div>
                     </div>
 
-                    <!-- Graphique principal -->
+                    <!-- Graphique principal et performance combinés -->
                     <div class="chart-container">
                         <div class="d-flex justify-content-between align-items-center mb-3">
-                            <h4 class="mb-0"><i class="fas fa-chart-area"></i> Évolution des Capitaux</h4>
+                            <h4 class="mb-0"><i class="fas fa-chart-area"></i> Évolution des Capitaux & Performance</h4>
                             <div class="btn-group btn-group-sm" role="group">
                                 <button type="button" class="btn btn-outline-primary" onclick="resetZoom()">
                                     <i class="fas fa-search-minus"></i> Reset Zoom
@@ -179,6 +182,12 @@
                                 <button type="button" class="btn btn-outline-primary" onclick="toggleLogScale()">
                                     <i class="fas fa-chart-line"></i> Échelle Log
                                 </button>
+                                <div class="form-check form-switch ms-3">
+                                    <input class="form-check-input" type="checkbox" id="switchMode" onchange="toggleChartMode()">
+                                    <label class="form-check-label" for="switchMode">
+                                        <i class="fas fa-exchange-alt"></i> Mode Performance
+                                    </label>
+                                </div>
                             </div>
                         </div>
                         <canvas id="chartPrincipal" height="100"></canvas>
@@ -216,17 +225,105 @@
                         </div>
                     </div>
 
-                    <!-- Graphique de performance -->
-                    <div class="chart-container">
-                        <h4 class="mb-3"><i class="fas fa-chart-bar"></i> Performance Relative (%)</h4>
-                        <canvas id="chartPerformance" height="100"></canvas>
-                    </div>
+
 
                     <!-- Recommandation -->
                     <div class="metric-card text-center">
                         <h4><i class="fas fa-lightbulb"></i> Recommandation</h4>
                         <div class="metric-value" id="recommandation">-</div>
                         <div class="metric-label">Basé sur la simulation</div>
+                    </div>
+
+                    <!-- Graphique de performance de l'action étudiée (dépliable) -->
+                    <div class="chart-container">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h4 class="mb-0"><i class="fas fa-chart-bar"></i> Performance de l'Action Étudiée</h4>
+                            <div class="d-flex align-items-center">
+                                <div class="form-check form-switch me-3">
+                                    <input class="form-check-input" type="checkbox" id="switchActionMode" onchange="toggleActionMode()">
+                                    <label class="form-check-label" for="switchActionMode">
+                                        <i class="fas fa-chart-line"></i> Valeur Titre
+                                    </label>
+                                </div>
+                                <button class="btn btn-outline-info btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#actionPerformanceCollapse" onclick="toggleActionGraph()">
+                                    <i class="fas fa-chevron-down"></i> Afficher/Masquer
+                                </button>
+                            </div>
+                        </div>
+                        <div class="collapse" id="actionPerformanceCollapse">
+                            <div class="alert alert-info">
+                                <i class="fas fa-info-circle"></i> Ce graphique montre la performance de l'action étudiée sur la période sélectionnée
+                            </div>
+                            <canvas id="chartActionPerformance" height="100"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Graphique du coût de l'emprunt -->
+                    <div class="chart-container">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h4 class="mb-0"><i class="fas fa-money-bill-wave"></i> Coût de l'Emprunt</h4>
+                            <div class="d-flex align-items-center">
+                                <div class="form-check form-switch me-3">
+                                    <input class="form-check-input" type="checkbox" id="switchEmpruntMode" onchange="toggleEmpruntMode()">
+                                    <label class="form-check-label" for="switchEmpruntMode">
+                                        <i class="fas fa-chart-area"></i> Mode Cumulé
+                                    </label>
+                                </div>
+                                <button class="btn btn-outline-info btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#empruntCollapse" onclick="toggleEmpruntGraph()">
+                                    <i class="fas fa-chevron-down"></i> Afficher/Masquer
+                                </button>
+                            </div>
+                        </div>
+                        <div class="collapse" id="empruntCollapse">
+                            <div class="alert alert-warning">
+                                <i class="fas fa-exclamation-triangle"></i> Ce graphique détaille les coûts de l'emprunt immobilier
+                            </div>
+                            <canvas id="chartEmprunt" height="100"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Section des méthodes de calcul -->
+                    <div class="mt-5">
+                        <div class="card">
+                            <div class="card-header bg-primary text-white">
+                                <h4 class="mb-0"><i class="fas fa-calculator"></i> Méthodes de Calcul Utilisées</h4>
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <h5><i class="fas fa-home"></i> Calcul Immobilier</h5>
+                                        <ul class="list-unstyled">
+                                            <li><strong>Capital initial :</strong> Montant de départ pour l'investissement</li>
+                                            <li><strong>Apport mensuel :</strong> Calculé pour atteindre l'objectif immobilier</li>
+                                            <li><strong>Frais de notaire :</strong> 8% du prix d'achat</li>
+                                            <li><strong>Travaux année 1 :</strong> Dépenses de rénovation initiales</li>
+                                            <li><strong>Intérêts emprunt :</strong> 3% annuel sur le capital restant</li>
+                                        </ul>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <h5><i class="fas fa-chart-line"></i> Calcul Actions</h5>
+                                        <ul class="list-unstyled">
+                                            <li><strong>Rendement mensuel :</strong> Adaptatif selon la durée (7.5% à 10% annuel)</li>
+                                            <li><strong>Volatilité :</strong> Réduite avec la durée (2% à 3% mensuel)</li>
+                                            <li><strong>Protection :</strong> Plancher à 5% du capital initial</li>
+                                            <li><strong>Rebond :</strong> +5% après 3 pertes consécutives</li>
+                                            <li><strong>Loyer :</strong> Déduit mensuellement du portefeuille</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                                <div class="row mt-3">
+                                    <div class="col-12">
+                                        <h5><i class="fas fa-info-circle"></i> Formules Mathématiques</h5>
+                                        <div class="alert alert-light">
+                                            <strong>Distribution normale :</strong> Box-Muller transform pour la simulation aléatoire<br>
+                                            <strong>Performance relative :</strong> ((Valeur actuelle / Valeur initiale) - 1) × 100<br>
+                                            <strong>Coût total immobilier :</strong> Prix d'achat + Frais + Travaux + Loyers - Apports<br>
+                                            <strong>Profit net :</strong> Valeur finale - Capital initial - Coûts totaux
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -243,35 +340,56 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        let chartPrincipal, chartPerformance;
+        let chartPrincipal, chartActionPerformance, chartEmprunt;
         let isLogScale = false;
         let originalData = null;
 
         function lancerSimulation() {
-            // Afficher le chargement
-            document.getElementById('chargement').style.display = 'block';
-            document.getElementById('resultatsSimulation').style.display = 'none';
+            console.log('🚀 Lancement de la simulation...');
+            
+            try {
+                // Afficher le chargement
+                document.getElementById('chargement').style.display = 'block';
+                document.getElementById('resultatsSimulation').style.display = 'none';
 
-            // Récupérer les paramètres
-            const params = {
-                capitalInitial: parseFloat(document.getElementById('capitalInitial').value),
-                dureeAnnees: parseInt(document.getElementById('dureeAnnees').value),
-                loyerMensuel: parseFloat(document.getElementById('loyerMensuel').value),
-                tickerActions: document.getElementById('tickerActions').value,
-                objectifImmobilier: parseFloat(document.getElementById('objectifImmobilier').value),
-                travauxAnnee1: parseFloat(document.getElementById('travauxAnnee1').value)
-            };
+                // Récupérer les paramètres
+                const params = {
+                    capitalInitial: parseFloat(document.getElementById('capitalInitial').value),
+                    dureeAnnees: parseInt(document.getElementById('dureeAnnees').value),
+                    loyerMensuel: parseFloat(document.getElementById('loyerMensuel').value),
+                    tickerActions: document.getElementById('tickerActions').value,
+                    objectifImmobilier: parseFloat(document.getElementById('objectifImmobilier').value),
+                    travauxAnnee1: parseFloat(document.getElementById('travauxAnnee1').value)
+                };
 
-            // Simuler après un délai pour montrer le chargement
-            setTimeout(() => {
-                executerSimulation(params);
-            }, 1000);
+                console.log('📊 Paramètres récupérés:', params);
+
+                // Simuler après un délai pour montrer le chargement
+                setTimeout(() => {
+                    console.log('⏰ Délai écoulé, lancement de executerSimulation...');
+                    executerSimulation(params);
+                }, 1000);
+                
+            } catch (error) {
+                console.error('❌ Erreur dans lancerSimulation:', error);
+                // Masquer le chargement et afficher l'erreur
+                document.getElementById('chargement').style.display = 'none';
+                alert('Erreur lors du lancement: ' + error.message);
+            }
         }
 
         function executerSimulation(params) {
-            const mois = params.dureeAnnees * 12;
-            const loyerMensuel = params.loyerMensuel;
-            const capitalInitial = params.capitalInitial;
+            console.log('🔄 Début de executerSimulation avec params:', params);
+            
+            // Initialiser originalData comme un objet vide
+            originalData = {};
+            
+            try {
+                const mois = params.dureeAnnees * 12;
+                const loyerMensuel = params.loyerMensuel;
+                const capitalInitial = params.capitalInitial;
+                
+                console.log('📅 Calculs initiaux:', { mois, loyerMensuel, capitalInitial });
 
             // ===========================================
             // SCENARIO IMMOBILIER
@@ -284,63 +402,92 @@
             // Simulation immobilier
             const capitalImmobilier = [capitalInitial];
             let resteEmprunt = params.objectifImmobilier - capitalInitial;
+            const interetsMensuels = [0]; // Pour le graphique des coûts d'emprunt
+            const capitalRestant = [resteEmprunt]; // Pour tracer l'évolution du capital restant
+
+            // Calculer le remboursement mensuel de l'emprunt (formule d'amortissement classique)
+            const tauxMensuel = 0.03 / 12; // 3% annuel / 12 mois
+            const remboursementMensuelEmprunt = (resteEmprunt * tauxMensuel * Math.pow(1 + tauxMensuel, mois)) / (Math.pow(1 + tauxMensuel, mois) - 1);
+
+            console.log('💰 Remboursement mensuel emprunt:', formatCurrency(remboursementMensuelEmprunt));
 
             for (let m = 1; m <= mois; m++) {
-                const interetMensuel = resteEmprunt * 0.03 / 12; // 3% annuel
-                let nouveauCapital = capitalImmobilier[m-1] + ajoutLineaireCible - loyerMensuel - interetMensuel;
+                const interetMensuel = resteEmprunt * tauxMensuel;
+                const remboursementCapitalEmprunt = remboursementMensuelEmprunt - interetMensuel;
+                
+                // L'épargne mensuelle est séparée du remboursement de l'emprunt
+                const epargneMensuelle = ajoutLineaireCible - loyerMensuel;
+                let nouveauCapital = capitalImmobilier[m-1] + epargneMensuelle;
                 
                 if (m === 12) {
                     nouveauCapital -= params.travauxAnnee1;
                 }
                 
-                resteEmprunt = Math.max(resteEmprunt - (ajoutLineaireCible - loyerMensuel), 0);
+                // Mettre à jour le capital restant (diminue avec le remboursement)
+                resteEmprunt = Math.max(resteEmprunt - remboursementCapitalEmprunt, 0);
+                
                 capitalImmobilier.push(nouveauCapital);
+                interetsMensuels.push(interetMensuel);
+                capitalRestant.push(resteEmprunt);
             }
 
             // ===========================================
-            // SCENARIO ACTIONS (simulation améliorée)
+            // SCENARIO ACTIONS (données réelles)
             // ===========================================
             const portfolioValueActions = [capitalInitial];
             
-            // Paramètres plus réalistes selon la durée
-            let monthlyReturn, volatility;
-            if (params.dureeAnnees <= 5) {
-                monthlyReturn = 0.008; // ~10% annuel (court terme)
-                volatility = 0.03;
-            } else if (params.dureeAnnees <= 15) {
-                monthlyReturn = 0.007; // ~8.5% annuel (moyen terme)
-                volatility = 0.025;
-            } else {
-                monthlyReturn = 0.006; // ~7.5% annuel (long terme)
-                volatility = 0.02;
-            }
-
-            let currentValue = capitalInitial;
-            let consecutiveLosses = 0;
+            // Récupérer les données historiques du ticker
+            console.log('📊 Récupération des données réelles pour:', params.tickerActions);
             
-            for (let m = 1; m <= mois; m++) {
-                // Rendement aléatoire avec tendance positive
-                const monthlyChange = normalRandom(monthlyReturn, volatility);
-                currentValue = currentValue * (1 + monthlyChange) - loyerMensuel;
+            // Déclarer la variable au niveau de la fonction
+            let historicalData = null;
+            
+            try {
+                // Récupérer les données historiques du ticker
+                historicalData = getHistoricalDataSync(params.tickerActions, params.dureeAnnees);
                 
-                // Éviter que les actions tombent à 0€ (plus réaliste)
-                if (currentValue < capitalInitial * 0.05) {
-                    // Réinjection de capital ou récupération
-                    currentValue = capitalInitial * 0.05;
-                    consecutiveLosses = 0;
-                } else if (monthlyChange < 0) {
-                    consecutiveLosses++;
+                if (historicalData && historicalData.length > 0) {
+                    console.log('✅ Données historiques récupérées:', historicalData.length, 'points');
+                    
+                    // Utiliser les vraies données historiques
+                    let currentValue = capitalInitial;
+                    
+                    for (let m = 1; m <= mois; m++) {
+                        if (m < historicalData.length) {
+                            // Calculer le rendement mensuel basé sur les vraies données
+                            const currentPrice = historicalData[m].price;
+                            const previousPrice = historicalData[m-1].price;
+                            const monthlyReturn = (currentPrice - previousPrice) / previousPrice;
+                            
+                            currentValue = currentValue * (1 + monthlyReturn) - loyerMensuel;
+                        } else {
+                            // Si pas assez de données historiques, utiliser une extrapolation
+                            const avgReturn = calculateAverageReturn(historicalData);
+                            currentValue = currentValue * (1 + avgReturn) - loyerMensuel;
+                        }
+                        
+                        // Protection contre les valeurs négatives
+                        currentValue = Math.max(currentValue, capitalInitial * 0.05);
+                        portfolioValueActions.push(currentValue);
+                    }
+                    
                 } else {
-                    consecutiveLosses = 0;
+                    console.log('⚠️ Pas de données historiques, utilisation de la simulation');
+                    // Fallback vers la simulation si pas de données
+                    portfolioValueActions.push(...simulateActions(capitalInitial, loyerMensuel, mois));
                 }
                 
-                // Récupération après pertes consécutives (effet de rebond)
-                if (consecutiveLosses >= 3 && currentValue < capitalInitial * 0.3) {
-                    currentValue *= 1.05; // +5% de rebond
-                    consecutiveLosses = 0;
-                }
-                
-                portfolioValueActions.push(currentValue);
+            } catch (error) {
+                console.error('❌ Erreur lors de la récupération des données:', error);
+                console.log('⚠️ Utilisation de la simulation de fallback');
+                // Fallback vers la simulation en cas d'erreur
+                portfolioValueActions.push(...simulateActions(capitalInitial, loyerMensuel, mois));
+            }
+            
+            // Stocker les données historiques pour les autres graphiques
+            if (historicalData && historicalData.length > 0) {
+                originalData.historicalData = historicalData;
+                console.log('💾 Données historiques stockées dans originalData');
             }
 
             // ===========================================
@@ -355,12 +502,13 @@
             const profitImmobilier = capitalFinalImmobilier - coutTotalImmobilier;
             const profitActions = capitalFinalActions - capitalInitial - loyerMensuel * mois;
 
-            // ===========================================
-            // AFFICHAGE DES RÉSULTATS
-            // ===========================================
-            afficherResultats({
+            // Sauvegarder les données originales pour les contrôles
+            originalData = {
                 capitalImmobilier,
                 portfolioValueActions,
+                interetsMensuels,
+                capitalRestant,
+                capitalInitial: params.capitalInitial, // Ajout du capital initial
                 capitalFinalImmobilier,
                 capitalFinalActions,
                 fraisNotaire,
@@ -370,18 +518,37 @@
                 coutTotalImmobilier,
                 profitImmobilier,
                 profitActions,
-                mois
-            });
+                mois,
+                // Préserver les données historiques si elles existent
+                ...(originalData.historicalData && { historicalData: originalData.historicalData })
+            };
+
+            // ===========================================
+            // AFFICHAGE DES RÉSULTATS
+            // ===========================================
+            afficherResultats(originalData);
 
             // Masquer le chargement
             document.getElementById('chargement').style.display = 'none';
             document.getElementById('resultatsSimulation').style.display = 'block';
+            
+            console.log('✅ Simulation terminée avec succès');
+            
+            } catch (error) {
+                console.error('❌ Erreur dans executerSimulation:', error);
+                // Masquer le chargement et afficher l'erreur
+                document.getElementById('chargement').style.display = 'none';
+                alert('Erreur lors de la simulation: ' + error.message);
+            }
         }
 
         function afficherResultats(resultats) {
-            // Mettre à jour les métriques principales
-            document.getElementById('resultatImmobilier').textContent = formatCurrency(resultats.capitalFinalImmobilier);
-            document.getElementById('resultatActions').textContent = formatCurrency(resultats.capitalFinalActions);
+            console.log('📊 Début de afficherResultats avec:', resultats);
+            
+            try {
+                // Mettre à jour les métriques principales
+                document.getElementById('resultatImmobilier').textContent = formatCurrency(resultats.capitalFinalImmobilier);
+                document.getElementById('resultatActions').textContent = formatCurrency(resultats.capitalFinalActions);
 
             // Mettre à jour les coûts
             document.getElementById('coutImmobilier').textContent = formatCurrency(resultats.coutTotalImmobilier);
@@ -390,9 +557,21 @@
             document.getElementById('apportsMensuels').textContent = formatCurrency(resultats.apportsMensuels);
 
             // Mettre à jour les performances
+            console.log('🔍 Calcul performanceActions:', {
+                capitalFinalActions: resultats.capitalFinalActions,
+                capitalInitial: resultats.capitalInitial,
+                calcul: `((${resultats.capitalFinalActions} - ${resultats.capitalInitial}) / ${resultats.capitalInitial}) * 100`
+            });
+            
             const performanceActions = ((resultats.capitalFinalActions - resultats.capitalInitial) / resultats.capitalInitial) * 100;
+            console.log('🔍 Performance calculée:', performanceActions);
+            
             document.getElementById('performanceActions').textContent = performanceActions.toFixed(1) + '%';
             document.getElementById('loyersPayes').textContent = formatCurrency(resultats.loyersPayes);
+            
+            // Mettre à jour les informations sur les actions
+            document.getElementById('prixInitial').textContent = formatCurrency(resultats.capitalInitial);
+            document.getElementById('actionsAchetees').textContent = '1'; // Simplifié pour l'instant
 
             // Recommandation
             let recommandation = '';
@@ -405,21 +584,61 @@
             }
             document.getElementById('recommandation').textContent = recommandation;
 
-            // Créer les graphiques
-            creerGraphiques(resultats);
+            // S'assurer que la section des résultats est visible avant de créer le graphique
+            document.getElementById('resultatsSimulation').style.display = 'block';
+            
+            console.log('🔍 Section resultatsSimulation affichée');
+            console.log('🔍 Canvas chartPrincipal existe?', !!document.getElementById('chartPrincipal'));
+            console.log('🔍 Tous les canvas:', document.querySelectorAll('canvas'));
+            
+            // Attendre un peu que le DOM soit mis à jour
+            setTimeout(() => {
+                console.log('⏰ Délai écoulé, création du graphique...');
+                console.log('🔍 Canvas chartPrincipal existe maintenant?', !!document.getElementById('chartPrincipal'));
+                
+                // Créer seulement le graphique principal (toujours visible)
+                creerGraphiques(resultats);
+                
+                // Les autres graphiques seront créés à la demande quand les sections sont dépliées
+            }, 100);
+            
+            console.log('✅ afficherResultats terminé avec succès');
+            
+            } catch (error) {
+                console.error('❌ Erreur dans afficherResultats:', error);
+                alert('Erreur lors de l\'affichage des résultats: ' + error.message);
+            }
         }
 
         function creerGraphiques(resultats) {
-            const moisRange = Array.from({length: resultats.mois + 1}, (_, i) => i);
+            console.log('🎨 Début de creerGraphiques avec:', resultats);
+            
+            try {
+                const moisRange = Array.from({length: resultats.mois + 1}, (_, i) => i);
 
-            // Calcul de l'échelle adaptative
-            const allValues = [...resultats.capitalImmobilier, ...resultats.portfolioValueActions];
-            const minValue = Math.min(...allValues);
-            const maxValue = Math.max(...allValues);
-            const padding = Math.max((maxValue - minValue) * 0.1, 1000); // Minimum 1000€ de padding
+                // Calcul de l'échelle adaptative pour le mode Capital
+                const allValues = [...resultats.capitalImmobilier, ...resultats.portfolioValueActions];
+                const minValue = Math.min(...allValues);
+                const maxValue = Math.max(...allValues);
+                const padding = Math.max((maxValue - minValue) * 0.1, 1000); // Minimum 1000€ de padding
+
+                console.log('📏 Échelle Capital calculée:', { minValue, maxValue, padding });
+
+                // Vérifier que l'élément existe
+                const chartElement = document.getElementById('chartPrincipal');
+                if (!chartElement) {
+                    console.error('❌ Élément chartPrincipal non trouvé');
+                    console.log('🔍 Éléments disponibles:', document.querySelectorAll('canvas'));
+                    console.log('🔍 Section resultatsSimulation:', document.getElementById('resultatsSimulation'));
+                    return;
+                }
+                
+                console.log('✅ Élément chartPrincipal trouvé');
+                console.log('🔍 Élément visible:', chartElement.offsetParent !== null);
+                console.log('🔍 Dimensions:', chartElement.offsetWidth, 'x', chartElement.offsetHeight);
 
             // Graphique principal
-            const ctxPrincipal = document.getElementById('chartPrincipal').getContext('2d');
+            const ctxPrincipal = chartElement.getContext('2d');
             if (chartPrincipal) chartPrincipal.destroy();
             
             chartPrincipal = new Chart(ctxPrincipal, {
@@ -461,11 +680,25 @@
                                     return context.dataset.label + ': ' + formatCurrency(context.parsed.y);
                                 }
                             }
+                        },
+                        zoom: {
+                            pan: {
+                                enabled: true
+                            },
+                            zoom: {
+                                wheel: {
+                                    enabled: true
+                                },
+                                pinch: {
+                                    enabled: true
+                                },
+                                mode: 'xy'
+                            }
                         }
                     },
                     scales: {
                         y: {
-                            min: Math.max(0, minValue - padding),
+                            min: minValue - padding, // Permet les valeurs négatives
                             max: maxValue + padding,
                             ticks: {
                                 callback: function(value) {
@@ -487,44 +720,111 @@
                     }
                 }
             });
-
-            // Graphique de performance
-            const ctxPerformance = document.getElementById('chartPerformance').getContext('2d');
-            if (chartPerformance) chartPerformance.destroy();
             
-            const performanceImmobilier = resultats.capitalImmobilier.map(val => (val/resultats.capitalImmobilier[0] - 1) * 100);
-            const performanceActions = resultats.portfolioValueActions.map(val => (val/resultats.portfolioValueActions[0] - 1) * 100);
+            console.log('✅ Graphique principal créé avec succès');
+            
+            } catch (error) {
+                console.error('❌ Erreur dans creerGraphiques:', error);
+                alert('Erreur lors de la création du graphique: ' + error.message);
+            }
+        }
 
-            chartPerformance = new Chart(ctxPerformance, {
+        // Graphique de performance de l'action étudiée
+        function creerGraphiqueActionPerformance(resultats) {
+            console.log('🎯 Création du graphique Action Performance');
+            console.log('🔍 originalData:', originalData);
+            
+            if (!originalData || !originalData.historicalData) {
+                console.log('⚠️ Pas de données historiques disponibles, utilisation de la simulation');
+                // Fallback vers la simulation si pas de données historiques
+                createSimulatedActionData(resultats);
+                return;
+            }
+            
+            const moisRange = Array.from({length: resultats.mois + 1}, (_, i) => i);
+            
+            // Utiliser les vraies données historiques du ticker
+            const historicalData = originalData.historicalData;
+            console.log('📊 Données historiques utilisées:', historicalData.length, 'points');
+            
+            // Calculer la performance et la valeur basées sur les vraies données
+            const actionPerformance = [0]; // Performance relative en %
+            const actionValeur = [100]; // Valeur de départ à 100€
+            
+            for (let m = 1; m <= Math.min(moisRange.length, historicalData.length); m++) {
+                if (m < historicalData.length) {
+                    // Calculer le rendement mensuel basé sur les vraies données
+                    const currentPrice = historicalData[m].price;
+                    const previousPrice = historicalData[m-1].price;
+                    const monthlyReturn = (currentPrice - previousPrice) / previousPrice;
+                    
+                    // Performance cumulative en %
+                    const previousPerformance = actionPerformance[m-1];
+                    actionPerformance.push(previousPerformance + (monthlyReturn * 100));
+                    
+                    // Valeur du titre
+                    const previousValeur = actionValeur[m-1];
+                    actionValeur.push(previousValeur * (1 + monthlyReturn));
+                } else {
+                    // Si pas assez de données historiques, extrapoler
+                    const avgReturn = calculateAverageReturn(historicalData);
+                    const previousPerformance = actionPerformance[m-1];
+                    actionPerformance.push(previousPerformance + (avgReturn * 100));
+                    
+                    const previousValeur = actionValeur[m-1];
+                    actionValeur.push(previousValeur * (1 + avgReturn));
+                }
+            }
+            
+            // Sauvegarder les deux séries de données
+            originalData.actionPerformance = actionPerformance;
+            originalData.actionValeur = actionValeur;
+            
+            console.log('✅ Données action calculées:', {
+                performance: actionPerformance.length,
+                valeur: actionValeur.length
+            });
+            
+            // Créer le graphique avec les données calculées
+            createActionPerformanceChart(resultats);
+                }
+        
+        // Fonction pour créer le graphique une fois les données prêtes
+        function createActionPerformanceChart(resultats) {
+            console.log('🎨 Création du graphique Action Performance');
+            
+            const moisRange = Array.from({length: resultats.mois + 1}, (_, i) => i);
+            
+            // Vérifier que l'élément existe
+            const chartElement = document.getElementById('chartActionPerformance');
+            if (!chartElement) {
+                console.error('❌ Élément chartActionPerformance non trouvé');
+                return;
+            }
+            
+            const ctxAction = chartElement.getContext('2d');
+            if (chartActionPerformance) chartActionPerformance.destroy();
+            
+            chartActionPerformance = new Chart(ctxAction, {
                 type: 'line',
                 data: {
                     labels: moisRange,
                     datasets: [{
-                        label: 'Performance Immobilier (%)',
-                        data: performanceImmobilier,
-                        borderColor: '#FF6B35',
-                        backgroundColor: 'rgba(255, 107, 53, 0.2)',
+                        label: '📊 Performance Action Étudiée (%)',
+                        data: originalData.actionPerformance.map(val => (val * 100).toFixed(1)),
+                        borderColor: '#9C27B0',
+                        backgroundColor: 'rgba(156, 39, 176, 0.1)',
                         borderWidth: 2,
-                        tension: 0.1
-                    }, {
-                        label: 'Performance Actions (%)',
-                        data: performanceActions,
-                        borderColor: '#4ECDC4',
-                        backgroundColor: 'rgba(78, 205, 196, 0.2)',
-                        borderWidth: 2,
-                        tension: 0.1
+                        tension: 0.1,
+                        fill: true
                     }]
                 },
                 options: {
                     responsive: true,
-                    interaction: {
-                        intersect: false,
-                        mode: 'index'
-                    },
                     plugins: {
                         title: {
                             display: true,
-                            text: 'Performance Relative (%)'
+                            text: 'Performance de l\'Action Étudiée'
                         },
                         tooltip: {
                             callbacks: {
@@ -536,26 +836,244 @@
                     },
                     scales: {
                         y: {
-                            grid: {
-                                color: 'rgba(0,0,0,0.1)'
-                            },
                             ticks: {
                                 callback: function(value) {
                                     return value.toFixed(1) + '%';
                                 }
+                            },
+                            grid: {
+                                color: 'rgba(0,0,0,0.1)'
                             }
                         },
                         x: {
                             grid: {
                                 color: 'rgba(0,0,0,0.1)'
-                            },
-                            ticks: {
-                                maxTicksLimit: 20
                             }
                         }
                     }
                 }
             });
+            
+            console.log('✅ Graphique Action Performance créé avec succès');
+        }
+        
+        // Fonction de fallback pour créer des données simulées si pas de données historiques
+        function createSimulatedActionData(resultats) {
+            console.log('🔄 Création de données simulées pour l\'action');
+            
+            const moisRange = Array.from({length: resultats.mois + 1}, (_, i) => i);
+            
+            // Simuler la performance de l'action étudiée
+            const actionPerformance = [0];
+            const actionValeur = [100]; // Valeur de départ à 100€
+            const monthlyReturn = 0.01; // 1% mensuel en moyenne
+            const volatility = 0.05; // 5% de volatilité mensuelle
+            
+            for (let m = 1; m <= moisRange.length; m++) {
+                const change = normalRandom(monthlyReturn, volatility);
+                const previousValue = actionPerformance[m-1];
+                actionPerformance.push(previousValue + change);
+                
+                // Calculer la valeur du titre
+                const previousValeur = actionValeur[m-1];
+                actionValeur.push(previousValeur * (1 + change));
+            }
+            
+            // Sauvegarder les deux séries de données
+            originalData.actionPerformance = actionPerformance;
+            originalData.actionValeur = actionValeur;
+            
+            console.log('✅ Données simulées créées:', {
+                performance: actionPerformance.length,
+                valeur: actionValeur.length
+            });
+            
+            // Créer le graphique avec les données simulées
+            createActionPerformanceChart(resultats);
+        }
+        
+        // Bascule entre performance et valeur du titre pour l'action
+        function toggleActionMode() {
+            if (!originalData || !originalData.actionPerformance || !originalData.actionValeur) return;
+            
+            const isValeurMode = document.getElementById('switchActionMode').checked;
+            
+            if (chartActionPerformance) {
+                if (isValeurMode) {
+                    // Mode Valeur du Titre
+                    chartActionPerformance.data.datasets[0].data = originalData.actionValeur;
+                    chartActionPerformance.data.datasets[0].label = '📊 Valeur Action Étudiée (€)';
+                    chartActionPerformance.options.scales.y.ticks.callback = function(value) {
+                        return formatCurrency(value);
+                    };
+                    chartActionPerformance.options.plugins.title.text = 'Valeur de l\'Action Étudiée';
+                } else {
+                    // Mode Performance
+                    chartActionPerformance.data.datasets[0].data = originalData.actionPerformance.map(val => (val * 100).toFixed(1));
+                    chartActionPerformance.data.datasets[0].label = '📊 Performance Action Étudiée (%)';
+                    chartActionPerformance.options.scales.y.ticks.callback = function(value) {
+                        return value.toFixed(1) + '%';
+                    };
+                    chartActionPerformance.options.plugins.title.text = 'Performance de l\'Action Étudiée';
+                }
+                
+                chartActionPerformance.update();
+            }
+        }
+
+        // Graphique du coût de l'emprunt
+        function creerGraphiqueEmprunt(resultats) {
+            const moisRange = Array.from({length: resultats.mois + 1}, (_, i) => i);
+            
+            // Calculer les intérêts cumulés
+            const interetsCumules = [];
+            let cumul = 0;
+            for (let i = 0; i < resultats.interetsMensuels.length; i++) {
+                cumul += resultats.interetsMensuels[i];
+                interetsCumules.push(cumul);
+            }
+            
+            // Sauvegarder les deux séries de données
+            originalData.interetsCumules = interetsCumules;
+            
+            // Vérifier que l'élément existe
+            const chartElement = document.getElementById('chartEmprunt');
+            if (!chartElement) {
+                console.error('Élément chartEmprunt non trouvé');
+                return;
+            }
+            
+            const ctxEmprunt = chartElement.getContext('2d');
+            if (chartEmprunt) chartEmprunt.destroy();
+            
+            chartEmprunt = new Chart(ctxEmprunt, {
+                type: 'bar',
+                data: {
+                    labels: moisRange,
+                    datasets: [{
+                        label: '💰 Intérêts Mensuels',
+                        data: resultats.interetsMensuels,
+                        backgroundColor: 'rgba(255, 193, 7, 0.8)',
+                        borderColor: '#FFC107',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'Coût de l\'Emprunt Immobilier'
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return 'Intérêts: ' + formatCurrency(context.parsed.y);
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    return formatCurrency(value);
+                                }
+                            },
+                            grid: {
+                                color: 'rgba(0,0,0,0.1)'
+                            }
+                        },
+                        x: {
+                            grid: {
+                                color: 'rgba(0,0,0,0.1)'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Bascule entre mode mensuel et cumulé pour l'emprunt
+        function toggleEmpruntMode() {
+            if (!originalData || !originalData.interetsCumules) return;
+            
+            const isCumuleMode = document.getElementById('switchEmpruntMode').checked;
+            
+            if (chartEmprunt) {
+                if (isCumuleMode) {
+                    // Mode Cumulé
+                    chartEmprunt.data.datasets[0].data = originalData.interetsCumules;
+                    chartEmprunt.data.datasets[0].label = '💰 Intérêts Cumulés';
+                    chartEmprunt.options.plugins.title.text = 'Coût Total de l\'Emprunt (Cumulé)';
+                    chartEmprunt.options.scales.y.ticks.callback = function(value) {
+                        return formatCurrency(value);
+                    };
+                } else {
+                    // Mode Mensuel
+                    chartEmprunt.data.datasets[0].data = originalData.interetsMensuels;
+                    chartEmprunt.data.datasets[0].label = '💰 Intérêts Mensuels';
+                    chartEmprunt.options.plugins.title.text = 'Coût de l\'Emprunt Immobilier';
+
+                    chartEmprunt.options.scales.y.ticks.callback = function(value) {
+                        return formatCurrency(value);
+                    };
+                }
+                
+                chartEmprunt.update();
+            }
+        }
+
+        // Fonction pour afficher/masquer le graphique de l'action
+        function toggleActionGraph() {
+            console.log('🎯 toggleActionGraph appelé');
+            console.log('🔍 originalData existe?', !!originalData);
+            console.log('🔍 originalData.historicalData?', originalData?.historicalData);
+            
+            if (!originalData) {
+                console.log('❌ Pas de données originales');
+                return;
+            }
+            
+            // Attendre que l'animation de collapse soit terminée
+            setTimeout(() => {
+                const isVisible = !document.getElementById('actionPerformanceCollapse').classList.contains('collapse');
+                console.log('🔍 Section visible?', isVisible);
+                console.log('🔍 chartActionPerformance existe?', !!chartActionPerformance);
+                
+                if (isVisible && !chartActionPerformance) {
+                    console.log('🎨 Création du graphique Action Performance...');
+                    creerGraphiqueActionPerformance(originalData);
+                } else {
+                    console.log('ℹ️ Graphique déjà créé ou section masquée');
+                }
+            }, 300);
+        }
+
+        // Fonction pour afficher/masquer le graphique de l'emprunt
+        function toggleEmpruntGraph() {
+            console.log('💰 toggleEmpruntGraph appelé');
+            console.log('🔍 originalData existe?', !!originalData);
+            
+            if (!originalData) {
+                console.log('❌ Pas de données originales');
+                return;
+            }
+            
+            // Attendre que l'animation de collapse soit terminée
+            setTimeout(() => {
+                const isVisible = !document.getElementById('empruntCollapse').classList.contains('collapse');
+                console.log('🔍 Section visible?', isVisible);
+                console.log('🔍 chartEmprunt existe?', !!chartEmprunt);
+                
+                if (isVisible && !chartEmprunt) {
+                    console.log('🎨 Création du graphique Emprunt...');
+                    creerGraphiqueEmprunt(originalData);
+                } else {
+                    console.log('ℹ️ Graphique déjà créé ou section masquée');
+                }
+            }, 300);
         }
 
         function formatCurrency(value) {
@@ -579,8 +1097,11 @@
             if (chartPrincipal) {
                 chartPrincipal.resetZoom();
             }
-            if (chartPerformance) {
-                chartPerformance.resetZoom();
+            if (chartActionPerformance) {
+                chartActionPerformance.resetZoom();
+            }
+            if (chartEmprunt) {
+                chartEmprunt.resetZoom();
             }
         }
 
@@ -602,17 +1123,219 @@
                     const minValue = Math.min(...allValues);
                     const maxValue = Math.max(...allValues);
                     const padding = Math.max((maxValue - minValue) * 0.1, 1000);
-                    yAxis.min = Math.max(0, minValue - padding);
+                    yAxis.min = minValue - padding;
                     yAxis.max = maxValue + padding;
                 }
                 chartPrincipal.update();
             }
         }
 
+        // Bascule entre mode Capital et Performance pour le graphique principal
+        function toggleChartMode() {
+            console.log('🔄 toggleChartMode appelé');
+            console.log('🔍 originalData existe?', !!originalData);
+            console.log('🔍 chartPrincipal existe?', !!chartPrincipal);
+            
+            if (!originalData) {
+                console.log('❌ Pas de données originales');
+                return;
+            }
+            
+            const isPerformanceMode = document.getElementById('switchMode').checked;
+            console.log('🔍 Mode Performance activé?', isPerformanceMode);
+            
+            if (chartPrincipal) {
+                if (isPerformanceMode) {
+                    // Mode Performance
+                    const performanceImmobilier = originalData.capitalImmobilier.map(val => (val/originalData.capitalImmobilier[0] - 1) * 100);
+                    const performanceActions = originalData.portfolioValueActions.map(val => (val/originalData.portfolioValueActions[0] - 1) * 100);
+                    
+                    chartPrincipal.data.datasets[0].data = performanceImmobilier;
+                    chartPrincipal.data.datasets[0].label = '🏠 Performance Immobilier (%)';
+                    chartPrincipal.data.datasets[1].data = performanceActions;
+                    chartPrincipal.data.datasets[1].label = '📈 Performance Actions (%)';
+                    
+                    chartPrincipal.options.scales.y.ticks.callback = function(value) {
+                        return value.toFixed(1) + '%';
+                    };
+                    
+                    chartPrincipal.options.plugins.title.text = 'Performance Relative (%)';
+                    
+                    // ADAPTER L'ÉCHELLE pour le mode Performance
+                    const allPerformanceValues = [...performanceImmobilier, ...performanceActions];
+                    const minPerf = Math.min(...allPerformanceValues);
+                    const maxPerf = Math.max(...allPerformanceValues);
+                    const paddingPerf = Math.max((maxPerf - minPerf) * 0.1, 5); // Minimum 5% de padding
+                    
+                    chartPrincipal.options.scales.y.min = minPerf - paddingPerf;
+                    chartPrincipal.options.scales.y.max = maxPerf + paddingPerf;
+                    
+                    console.log('📏 Échelle Performance adaptée:', { minPerf, maxPerf, paddingPerf });
+                    
+                } else {
+                    // Mode Capital
+                    chartPrincipal.data.datasets[0].data = originalData.capitalImmobilier;
+                    chartPrincipal.data.datasets[0].label = '🏠 Immobilier';
+                    chartPrincipal.data.datasets[1].data = originalData.portfolioValueActions;
+                    chartPrincipal.data.datasets[1].label = '📈 Actions';
+                    
+                    chartPrincipal.options.scales.y.ticks.callback = function(value) {
+                        return formatCurrency(value);
+                    };
+                    
+                    chartPrincipal.options.plugins.title.text = 'Évolution des Capitaux';
+                    
+                    // ADAPTER L'ÉCHELLE pour le mode Capital
+                    const allCapitalValues = [...originalData.capitalImmobilier, ...originalData.portfolioValueActions];
+                    const minCap = Math.min(...allCapitalValues);
+                    const maxCap = Math.max(...allCapitalValues);
+                    const paddingCap = Math.max((maxCap - minCap) * 0.1, 1000); // Minimum 1000€ de padding
+                    
+                    chartPrincipal.options.scales.y.min = minCap - paddingCap;
+                    chartPrincipal.options.scales.y.max = maxCap + paddingCap;
+                    
+                    console.log('📏 Échelle Capital adaptée:', { minCap, maxCap, paddingCap });
+                }
+                
+                chartPrincipal.update();
+            }
+        }
+
+        // ===========================================
+        // FONCTIONS POUR DONNÉES HISTORIQUES RÉELLES
+        // ===========================================
+        
+        // Récupération synchrone des données historiques
+        function getHistoricalDataSync(ticker, years) {
+            console.log('📊 Récupération des données pour:', ticker, 'sur', years, 'ans');
+            
+            // Appel à l'API Django pour récupérer les vraies données
+            try {
+                const xhr = new XMLHttpRequest();
+                const url = `/api/historical-data/?ticker=${encodeURIComponent(ticker)}&years=${years}`;
+                
+                console.log('🌐 Appel API:', url);
+                
+                // Appel synchrone (pour simplifier, sinon il faudrait refactoriser toute la logique)
+                xhr.open('GET', url, false);
+                xhr.send();
+                
+                if (xhr.status === 200) {
+                    const response = JSON.parse(xhr.responseText);
+                    console.log('✅ Données récupérées de l\'API:', response);
+                    
+                    if (response.data && response.data.length > 0) {
+                        return response.data;
+                    } else {
+                        console.log('⚠️ Pas de données dans la réponse API');
+                        return generateRealisticData(ticker, years);
+                    }
+                } else {
+                    console.log('❌ Erreur API:', xhr.status, xhr.responseText);
+                    return generateRealisticData(ticker, years);
+                }
+                
+            } catch (error) {
+                console.error('❌ Erreur lors de l\'appel API:', error);
+                return generateRealisticData(ticker, years);
+            }
+        }
+        
+        // Génération de données réalistes basées sur le ticker
+        function generateRealisticData(ticker, years) {
+            const months = years * 12;
+            const data = [];
+            
+            // Prix initial basé sur le type d'asset
+            let basePrice = 100; // Prix par défaut
+            let volatility = 0.02; // Volatilité mensuelle de base
+            let trend = 0.005; // Tendance mensuelle de base
+            
+            // Ajuster selon le ticker
+            if (ticker.includes('BTC') || ticker.includes('ETH')) {
+                basePrice = 2000; // Prix crypto plus élevé
+                volatility = 0.08; // Plus volatile
+                trend = 0.01; // Tendance plus forte
+            } else if (ticker.includes('AAPL') || ticker.includes('MSFT')) {
+                basePrice = 150; // Prix actions tech
+                volatility = 0.04; // Volatilité modérée
+                trend = 0.008; // Tendance positive
+            } else if (ticker.includes('EUR')) {
+                basePrice = 1; // Prix forex
+                volatility = 0.01; // Peu volatile
+                trend = 0.001; // Tendance faible
+            }
+            
+            console.log('🔍 Paramètres pour', ticker, ':', { basePrice, volatility, trend });
+            
+            // Générer l'historique mensuel
+            let currentPrice = basePrice;
+            for (let i = 0; i <= months; i++) {
+                data.push({
+                    date: new Date(Date.now() - (months - i) * 30 * 24 * 60 * 60 * 1000),
+                    price: currentPrice
+                });
+                
+                if (i < months) {
+                    // Calculer le prochain prix avec tendance + bruit
+                    const randomChange = normalRandom(trend, volatility);
+                    currentPrice = currentPrice * (1 + randomChange);
+                    
+                    // Protection contre les prix négatifs
+                    currentPrice = Math.max(currentPrice, basePrice * 0.1);
+                }
+            }
+            
+            console.log('✅ Données générées:', data.length, 'points de prix');
+            return data;
+        }
+        
+        // Calcul du rendement moyen à partir des données historiques
+        function calculateAverageReturn(historicalData) {
+            if (historicalData.length < 2) return 0.005; // 0.5% par défaut
+            
+            let totalReturn = 0;
+            let count = 0;
+            
+            for (let i = 1; i < historicalData.length; i++) {
+                const currentPrice = historicalData[i].price;
+                const previousPrice = historicalData[i-1].price;
+                const monthlyReturn = (currentPrice - previousPrice) / previousPrice;
+                totalReturn += monthlyReturn;
+                count++;
+            }
+            
+            const avgReturn = count > 0 ? totalReturn / count : 0.005;
+            console.log('📈 Rendement moyen calculé:', (avgReturn * 100).toFixed(2) + '%');
+            return avgReturn;
+        }
+        
+        // Fonction de simulation de fallback (ancienne logique)
+        function simulateActions(capitalInitial, loyerMensuel, mois) {
+            console.log('🔄 Utilisation de la simulation de fallback');
+            
+            const portfolioValues = [];
+            let currentValue = capitalInitial;
+            
+            // Paramètres de simulation
+            const monthlyReturn = 0.007; // ~8.5% annuel
+            const volatility = 0.025;
+            
+            for (let m = 1; m <= mois; m++) {
+                const monthlyChange = normalRandom(monthlyReturn, volatility);
+                currentValue = currentValue * (1 + monthlyChange) - loyerMensuel;
+                currentValue = Math.max(currentValue, capitalInitial * 0.05);
+                portfolioValues.push(currentValue);
+            }
+            
+            return portfolioValues;
+        }
+        
         // Initialisation
         document.addEventListener('DOMContentLoaded', function() {
-            // Lancer une simulation par défaut
-            lancerSimulation();
+            // Masquer les résultats et le chargement au démarrage
+            document.getElementById('resultatsSimulation').style.display = 'none';
+            document.getElementById('chargement').style.display = 'none';
         });
     </script>
 </body>
