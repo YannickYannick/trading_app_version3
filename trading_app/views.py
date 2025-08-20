@@ -3247,12 +3247,13 @@ def binance_positions_ajax(request):
                 position_side = 'BUY'  # Par défaut pour les balances
                 
                 position_key = (asset_symbol, position_side, position_size)
+                
                 print("Vérification de position_key dans Position_obj...")
                 Position_obj = Position.objects.filter(user=request.user)
                 print("position_key:", position_key[0])
                 print("Nombre de positions:", Position_obj.count())
 
-                # Méthode recommandée : vérification avec exists()
+         
                 #if Position_obj.filter(broker_position_id=position_key[0]).exists():  # Adaptez "id" au champ que vous voulez
                 if Position_obj.filter(asset_tradable__symbol=position_key[0]).exists():
 

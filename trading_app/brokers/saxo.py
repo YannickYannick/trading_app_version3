@@ -51,8 +51,18 @@ class SaxoBroker(BrokerBase):
     def authenticate(self) -> bool:
         """Authentification - vérifier si on a un token valide ou essayer de le rafraîchir"""
         # Si on a déjà un token valide, on est authentifié
-        if self.is_authenticated() and self.token_expires_at and datetime.now() < self.token_expires_at:
-            return True
+        if self.is_authenticated() and self.token_expires_at:
+            # Normaliser les dates pour la comparaison
+            now = datetime.now()
+            expires_at = self.token_expires_at
+            
+            # Si expires_at a un timezone, convertir now en timezone-aware
+            if expires_at and hasattr(expires_at, 'tzinfo') and expires_at.tzinfo:
+                from django.utils import timezone
+                now = timezone.now()
+            
+            if expires_at and now < expires_at:
+                return True
         
         # Gestion spéciale pour les tokens 24h
         # Si access_token et refresh_token sont identiques, c'est probablement un token 24h
@@ -157,9 +167,12 @@ class SaxoBroker(BrokerBase):
         print(f"🔄 Tentative de refresh vers {token_url}")
         print(f"🔑 Client ID: {self.client_id}")
         print(f"🔑 Environment: {'LIVE' if 'live' in self.auth_url else 'SIMULATION'}")
+        print(f"🔑 Refresh Token (20 premiers caractères): {self.refresh_token[:20]}...")
+        print(f"📤 Données envoyées: {data}")
         
         try:
             # Test de connectivité avec timeout et headers appropriés
+            print(f"📡 Envoi de la requête POST...")
             response = requests.post(
                 token_url, 
                 data=data, 
@@ -171,10 +184,18 @@ class SaxoBroker(BrokerBase):
             )
             
             print(f"📊 Status Code: {response.status_code}")
+            print(f"📄 Headers de réponse: {dict(response.headers)}")
+            print(f"📄 Contenu de la réponse: {response.text}")
             
             if response.status_code in [200, 201]:  # ✅ Accepter 200 et 201
-                tokens = response.json()
-                print("✅ Refresh réussi, traitement des tokens...")
+                try:
+                    tokens = response.json()
+                    print("✅ Refresh réussi, traitement des tokens...")
+                    print(f"🔑 Tokens reçus: {list(tokens.keys())}")
+                except Exception as e:
+                    print(f"❌ Erreur parsing JSON: {e}")
+                    print(f"📄 Contenu brut: {response.text}")
+                    return False
             else:
                 print(f"❌ Erreur HTTP: {response.status_code}")
                 print(f"📄 Réponse: {response.text}")
@@ -191,10 +212,12 @@ class SaxoBroker(BrokerBase):
                 broker_service = BrokerService(self.user)
                 
                 # Récupérer les credentials depuis la base de données
+                # Chercher par client_id plutôt que par access_token
                 from ..models import BrokerCredentials
                 broker_creds = BrokerCredentials.objects.filter(
                     user=self.user,
-                    saxo_access_token=self.credentials.get('access_token')
+                    broker_type='saxo',
+                    saxo_client_id=self.client_id
                 ).first()
                 
                 if broker_creds:
@@ -206,11 +229,17 @@ class SaxoBroker(BrokerBase):
                     }
                     broker_service.update_saxo_tokens(broker_creds, new_tokens)
                     print("✅ Tokens mis à jour dans la base de données")
+                    print(f"   🔑 Nouveau Access Token: {tokens['access_token'][:20]}...")
+                    print(f"   🔑 Nouveau Refresh Token: {tokens['refresh_token'][:20]}...")
+                    print(f"   ⏰ Nouvelle expiration: {self.token_expires_at}")
                 else:
                     print("⚠️ Credentials non trouvés dans la base de données")
+                    print(f"   🔍 Recherche avec: user={self.user.username}, client_id={self.client_id}")
                     
             except Exception as e:
                 print(f"⚠️ Erreur mise à jour base de données: {e}")
+                import traceback
+                traceback.print_exc()
                 # Continuer même si la mise à jour DB échoue
             
             return True
@@ -305,10 +334,18 @@ class SaxoBroker(BrokerBase):
             
             # Vérifier l'expiration
             if self.token_expires_at:
+                # Normaliser les dates pour la comparaison
                 now = datetime.now()
-                if now < self.token_expires_at:
+                expires_at = self.token_expires_at
+                
+                # Si expires_at a un timezone, convertir now en timezone-aware
+                if expires_at and hasattr(expires_at, 'tzinfo') and expires_at.tzinfo:
+                    from django.utils import timezone
+                    now = timezone.now()
+                
+                if now < expires_at:
                     # Token valide, calculer le temps restant
-                    time_left = self.token_expires_at - now
+                    time_left = expires_at - now
                     hours = int(time_left.total_seconds() // 3600)
                     minutes = int((time_left.total_seconds() % 3600) // 60)
                     
