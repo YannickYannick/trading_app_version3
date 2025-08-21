@@ -56,6 +56,15 @@
                         <small class="text-muted">Entre 5 et 120 minutes</small>
                     </div>
                     <div class="mb-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="autoRefreshTokensSwitch" onchange="toggleAutoRefreshTokens(this.checked)">
+                            <label class="form-check-label" for="autoRefreshTokensSwitch">
+                                <strong>Refresh automatique des tokens</strong>
+                            </label>
+                        </div>
+                        <small class="text-muted">Rafraîchit automatiquement les tokens Saxo avant expiration</small>
+                    </div>
+                    <div class="mb-3">
                         <strong>Statut:</strong> <span id="automationStatus" class="badge bg-secondary">Chargement...</span>
                     </div>
                     <div class="mb-3">
@@ -752,6 +761,11 @@ function updateAutomationUI() {
     document.getElementById('frequencySlider').value = automationStatus.frequency_minutes;
     document.getElementById('frequencyValue').textContent = automationStatus.frequency_minutes;
     
+    // Mettre à jour le switch de refresh automatique des tokens
+    if (automationStatus.auto_refresh_tokens !== undefined) {
+        document.getElementById('autoRefreshTokensSwitch').checked = automationStatus.auto_refresh_tokens;
+    }
+    
     // Mettre à jour le statut
     const statusElement = document.getElementById('automationStatus');
     if (automationStatus.is_active) {
@@ -892,6 +906,35 @@ function updateFrequency(value) {
             showSuccessMessage('Fréquence mise à jour: ' + value + ' minutes');
         } else {
             console.error('❌ Erreur mise à jour fréquence:', data.error);
+            showErrorMessage('Erreur lors de la mise à jour: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('❌ Erreur AJAX:', error);
+        showErrorMessage('Erreur lors de la mise à jour');
+    });
+}
+
+function toggleAutoRefreshTokens(enabled) {
+    console.log('🔄 Mise à jour du refresh automatique des tokens:', enabled);
+    
+    fetch('/automation/toggle-tokens/', {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': getCookie('csrftoken'),
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            enabled: enabled
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            console.log('✅ Refresh automatique des tokens mis à jour:', data.message);
+            showSuccessMessage('Refresh automatique des tokens ' + (enabled ? 'activé' : 'désactivé'));
+        } else {
+            console.error('❌ Erreur mise à jour refresh tokens:', data.error);
             showErrorMessage('Erreur lors de la mise à jour: ' + data.error);
         }
     })

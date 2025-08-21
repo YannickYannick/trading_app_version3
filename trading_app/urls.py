@@ -93,6 +93,7 @@ urlpatterns = [
     path('automation/pause/', automation_views.pause_automation, name='pause_automation'),
     path('automation/resume/', automation_views.resume_automation, name='resume_automation'),
     path('automation/frequency/', automation_views.update_frequency, name='update_frequency'),
+    path('automation/toggle-tokens/', automation_views.toggle_auto_refresh_tokens, name='toggle_auto_refresh_tokens'),
     path('automation/execute/', automation_views.execute_manual_cycle, name='execute_manual_cycle'),
     path('automation/logs/', automation_views.automation_logs, name='automation_logs'),
     

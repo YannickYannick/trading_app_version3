@@ -174,3 +174,25 @@ def automation_logs(request):
             'success': False,
             'error': str(e)
         })
+
+@login_required
+@csrf_exempt
+def toggle_auto_refresh_tokens(request):
+    """Active/désactive le refresh automatique des tokens"""
+    try:
+        data = json.loads(request.body)
+        enabled = data.get('enabled', True)
+        
+        automation_service = AutomationService(request.user)
+        automation_service.toggle_auto_refresh_tokens(enabled)
+        
+        status = "activé" if enabled else "désactivé"
+        return JsonResponse({
+            'success': True,
+            'message': f'Refresh automatique des tokens {status}'
+        })
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'error': str(e)
+        })

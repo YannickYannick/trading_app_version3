@@ -736,6 +736,7 @@ class AutomationConfig(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     is_active = models.BooleanField(default=False, help_text="Activer/désactiver l'automatisation")
     frequency_minutes = models.IntegerField(default=30, help_text="Fréquence en minutes")
+    auto_refresh_tokens = models.BooleanField(default=True, help_text="Activer le refresh automatique des tokens")
     last_execution = models.DateTimeField(null=True, blank=True, help_text="Dernière exécution")
     next_execution = models.DateTimeField(null=True, blank=True, help_text="Prochaine exécution programmée")
     created_at = models.DateTimeField(auto_now_add=True)

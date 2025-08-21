@@ -61,6 +61,80 @@ class BrokerService:
             print(f"❌ Erreur mise à jour tokens Saxo: {e}")
             return False
     
+    def refresh_saxo_tokens(self, broker_credentials: BrokerCredentials) -> bool:
+        """Rafraîchir les tokens Saxo"""
+        try:
+            if broker_credentials.broker_type != 'saxo':
+                print("❌ Cette méthode est réservée aux brokers Saxo Bank")
+                return False
+            
+            # Créer le broker et tenter le refresh
+            broker = self.get_broker_instance(broker_credentials)
+            success = broker.refresh_auth_token()
+            
+            if success:
+                print(f"✅ Tokens Saxo rafraîchis pour {broker_credentials.name}")
+            else:
+                print(f"❌ Échec du refresh des tokens Saxo pour {broker_credentials.name}")
+            
+            return success
+            
+        except Exception as e:
+            print(f"❌ Erreur refresh tokens Saxo: {e}")
+            return False
+    
+    def _should_refresh_saxo_tokens(self, broker_credentials: BrokerCredentials) -> bool:
+        """Vérifier si les tokens Saxo doivent être rafraîchis"""
+        try:
+            if not broker_credentials.saxo_token_expires_at:
+                return True  # Pas de date d'expiration, refresh nécessaire
+            
+            from datetime import datetime
+            now = datetime.now()
+            expires_at = broker_credentials.saxo_token_expires_at
+            
+            # Si expires_at a un timezone, convertir now en timezone-aware
+            if hasattr(expires_at, 'tzinfo') and expires_at.tzinfo:
+                from django.utils import timezone
+                now = timezone.now()
+            
+            # Refresh 5 minutes avant expiration
+            from datetime import timedelta
+            refresh_threshold = expires_at - timedelta(minutes=5)
+            
+            return now >= refresh_threshold
+            
+        except Exception as e:
+            print(f"❌ Erreur vérification expiration tokens: {e}")
+            return True  # En cas d'erreur, refresh par sécurité
+    
+    def test_binance_connection(self, broker_credentials: BrokerCredentials) -> bool:
+        """Tester la connexion Binance"""
+        try:
+            if broker_credentials.broker_type != 'binance':
+                print("❌ Cette méthode est réservée aux brokers Binance")
+                return False
+            
+            # Créer le broker et tester la connexion
+            broker = self.get_broker_instance(broker_credentials)
+            
+            # Test simple de récupération du compte
+            try:
+                balance = broker.get_balance()
+                if balance is not None:
+                    print(f"✅ Connexion Binance OK pour {broker_credentials.name}")
+                    return True
+                else:
+                    print(f"❌ Impossible de récupérer le solde Binance pour {broker_credentials.name}")
+                    return False
+            except Exception as e:
+                print(f"❌ Erreur test connexion Binance: {e}")
+                return False
+            
+        except Exception as e:
+            print(f"❌ Erreur création broker Binance: {e}")
+            return False
+    
     def sync_positions_from_broker(self, broker_credentials: BrokerCredentials) -> List[Position]:
         """Synchronise les positions depuis un broker"""
         print(f"🔄 Synchronisation des positions depuis {broker_credentials.broker_type}")

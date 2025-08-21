@@ -35,6 +35,14 @@ class AutomationService:
         start_time = timezone.now()
         logger.info(f"🚀 Début du cycle d'automatisation pour {self.user.username}")
         
+        # Notification de début de cycle
+        self.telegram_notifier.send_message(
+            f"🚀 **Début Cycle d'Automatisation**\n"
+            f"👤 {self.user.username}\n"
+            f"⏰ {start_time.strftime('%H:%M:%S')}\n"
+            f"🔄 Démarrage des synchronisations..."
+        )
+        
         # Initialiser les résultats
         results = {
             'summary': [],
@@ -66,6 +74,19 @@ class AutomationService:
             # 7. Envoyer les notifications Telegram
             self._send_telegram_notifications(results)
             
+            # Notification de fin de cycle
+            duration = timezone.now() - start_time
+            duration_seconds = int(duration.total_seconds())
+            
+            self.telegram_notifier.send_message(
+                f"🏁 **Fin Cycle d'Automatisation**\n"
+                f"👤 {self.user.username}\n"
+                f"⏱️ Durée: {duration_seconds}s\n"
+                f"✅ Succès: {len(results['summary'])}\n"
+                f"❌ Erreurs: {len(results['errors'])}\n"
+                f"⏰ {timezone.now().strftime('%H:%M:%S')}"
+            )
+            
             logger.info(f"✅ Cycle d'automatisation terminé pour {self.user.username}")
             
         except Exception as e:
@@ -77,9 +98,13 @@ class AutomationService:
             # Enregistrer le log d'erreur
             self._save_execution_log(results, start_time)
             
-            # Notifier l'erreur
+            # Notifier l'erreur critique immédiatement
             self.telegram_notifier.send_error_notification(
-                f"❌ Erreur critique d'automatisation: {str(e)}"
+                f"💥 **ERREUR CRITIQUE AUTOMATISATION**\n"
+                f"👤 {self.user.username}\n"
+                f"🔍 {error_msg}\n"
+                f"⏰ {timezone.now().strftime('%H:%M:%S')}\n"
+                f"🚨 Cycle interrompu !"
             )
         
         return results
@@ -107,10 +132,25 @@ class AutomationService:
                 positions = self.broker_service.sync_positions_from_broker(binance_creds)
                 results['summary'].append(f"✅ {len(positions)} positions Binance synchronisées")
                 results['api_responses'].append(f"Positions Binance: {len(positions)} récupérées")
+                
+                # Notification immédiate pour les positions
+                self.telegram_notifier.send_message(
+                    f"🔄 **Synchronisation Binance - Positions**\n"
+                    f"✅ {len(positions)} positions synchronisées\n"
+                    f"⏰ {timezone.now().strftime('%H:%M:%S')}"
+                )
+                
             except Exception as e:
                 error_msg = f"Erreur synchronisation positions Binance: {str(e)}"
                 results['errors'].append(error_msg)
                 logger.error(error_msg)
+                
+                # Notification d'erreur immédiate
+                self.telegram_notifier.send_message(
+                    f"❌ **Erreur Synchronisation Binance - Positions**\n"
+                    f"🔍 {error_msg}\n"
+                    f"⏰ {timezone.now().strftime('%H:%M:%S')}"
+                )
             
             # Synchroniser les trades
             try:
@@ -118,12 +158,33 @@ class AutomationService:
                 if trades_result.get('success'):
                     results['summary'].append(f"✅ {trades_result.get('count', 0)} trades Binance synchronisés")
                     results['api_responses'].append(f"Trades Binance: {trades_result.get('count', 0)} récupérés")
+                    
+                    # Notification immédiate pour les trades
+                    self.telegram_notifier.send_message(
+                        f"🔄 **Synchronisation Binance - Trades**\n"
+                        f"✅ {trades_result.get('count', 0)} trades synchronisés\n"
+                        f"⏰ {timezone.now().strftime('%H:%M:%S')}"
+                    )
                 else:
                     results['errors'].append(f"Échec synchronisation trades Binance: {trades_result.get('error', 'Erreur inconnue')}")
+                    
+                    # Notification d'erreur immédiate
+                    self.telegram_notifier.send_message(
+                        f"❌ **Erreur Synchronisation Binance - Trades**\n"
+                        f"🔍 {trades_result.get('error', 'Erreur inconnue')}\n"
+                        f"⏰ {timezone.now().strftime('%H:%M:%S')}"
+                    )
             except Exception as e:
                 error_msg = f"Erreur synchronisation trades Binance: {str(e)}"
                 results['errors'].append(error_msg)
                 logger.error(error_msg)
+                
+                # Notification d'erreur immédiate
+                self.telegram_notifier.send_message(
+                    f"❌ **Erreur Synchronisation Binance - Trades**\n"
+                    f"🔍 {error_msg}\n"
+                    f"⏰ {timezone.now().strftime('%H:%M:%S')}"
+                )
                 
         except Exception as e:
             error_msg = f"Erreur générale synchronisation Binance: {str(e)}"
@@ -155,35 +216,105 @@ class AutomationService:
                 positions = self.broker_service.sync_positions_from_broker(saxo_creds)
                 results['summary'].append(f"✅ {len(positions)} positions Saxo synchronisées")
                 results['api_responses'].append(f"Positions Saxo: {len(positions)} récupérées")
+                
+                # Notification immédiate pour les positions
+                self.telegram_notifier.send_message(
+                    f"🔄 **Synchronisation Saxo - Positions**\n"
+                    f"✅ {len(positions)} positions synchronisées\n"
+                    f"⏰ {timezone.now().strftime('%H:%M:%S')}"
+                )
+                
             except Exception as e:
                 error_msg = f"Erreur synchronisation positions Saxo: {str(e)}"
                 results['errors'].append(error_msg)
                 logger.error(error_msg)
+                
+                # Notification d'erreur immédiate
+                self.telegram_notifier.send_message(
+                    f"❌ **Erreur Synchronisation Saxo - Positions**\n"
+                    f"🔍 {error_msg}\n"
+                    f"⏰ {timezone.now().strftime('%H:%M:%S')}"
+                )
             
             # Synchroniser les trades
             try:
                 trades_result = self.broker_service.sync_trades_from_broker(saxo_creds)
                 if trades_result.get('success'):
                     results['summary'].append(f"✅ {trades_result.get('count', 0)} trades Saxo synchronisés")
+                    results['summary'].append(f"✅ {trades_result.get('count', 0)} trades Saxo synchronisés")
                     results['api_responses'].append(f"Trades Saxo: {trades_result.get('count', 0)} récupérés")
+                    
+                    # Notification immédiate pour les trades
+                    self.telegram_notifier.send_message(
+                        f"🔄 **Synchronisation Saxo - Trades**\n"
+                        f"✅ {trades_result.get('count', 0)} trades synchronisés\n"
+                        f"⏰ {timezone.now().strftime('%H:%M:%S')}"
+                    )
                 else:
                     results['errors'].append(f"Échec synchronisation trades Saxo: {trades_result.get('error', 'Erreur inconnue')}")
+                    
+                    # Notification d'erreur immédiate
+                    self.telegram_notifier.send_error_notification(
+                        f"❌ **Erreur Synchronisation Saxo - Trades**\n"
+                        f"🔍 {trades_result.get('error', 'Erreur inconnue')}\n"
+                        f"⏰ {timezone.now().strftime('%H:%M:%S')}"
+                    )
             except Exception as e:
                 error_msg = f"Erreur synchronisation trades Saxo: {str(e)}"
                 results['errors'].append(error_msg)
                 logger.error(error_msg)
+                
+                # Notification d'erreur immédiate
+                self.telegram_notifier.send_error_notification(
+                    f"❌ **Erreur Synchronisation Saxo - Trades**\n"
+                    f"🔍 {error_msg}\n"
+                    f"⏰ {timezone.now().strftime('%H:%M:%S')}"
+                )
             
-            # Auto-refresh des tokens Saxo
-            try:
-                from .management.commands.refresh_saxo_tokens import Command
-                refresh_cmd = Command()
-                refresh_cmd.handle()
-                results['summary'].append("✅ Tokens Saxo rafraîchis")
-                results['api_responses'].append("Refresh tokens Saxo: Succès")
-            except Exception as e:
-                error_msg = f"Erreur refresh tokens Saxo: {str(e)}"
-                results['errors'].append(error_msg)
-                logger.error(error_msg)
+            # Auto-refresh des tokens Saxo (si activé)
+            if self.config.auto_refresh_tokens:
+                try:
+                    # Refresh systématique des tokens Saxo à chaque cycle
+                    success = self.broker_service.refresh_saxo_tokens(saxo_creds)
+                    if success:
+                        results['summary'].append("✅ Tokens Saxo rafraîchis")
+                        results['api_responses'].append("Refresh tokens Saxo: Succès")
+                        
+                        # Notification immédiate pour le refresh des tokens
+                        self.telegram_notifier.send_message(
+                            f"🔄 **Refresh Tokens Saxo**\n"
+                            f"✅ Tokens rafraîchis avec succès\n"
+                            f"⏰ {timezone.now().strftime('%H:%M:%S')}"
+                        )
+                    else:
+                        results['errors'].append("Échec du refresh des tokens Saxo")
+                        
+                        # Notification d'erreur immédiate
+                        self.telegram_notifier.send_message(
+                            f"❌ **Erreur Refresh Tokens Saxo**\n"
+                            f"🔍 Échec du refresh des tokens\n"
+                            f"⏰ {timezone.now().strftime('%H:%M:%S')}"
+                        )
+                except Exception as e:
+                    error_msg = f"Erreur refresh tokens Saxo: {str(e)}"
+                    results['errors'].append(error_msg)
+                    logger.error(error_msg)
+                    
+                    # Notification d'erreur immédiate
+                    self.telegram_notifier.send_message(
+                        f"❌ **Erreur Refresh Tokens Saxo**\n"
+                        f"🔍 {error_msg}\n"
+                        f"⏰ {timezone.now().strftime('%H:%M:%S')}"
+                    )
+            else:
+                results['summary'].append("ℹ️ Refresh automatique des tokens désactivé")
+                
+                # Notification d'information
+                self.telegram_notifier.send_message(
+                    f"ℹ️ **Refresh Tokens Saxo**\n"
+                    f"📋 Refresh automatique désactivé par l'utilisateur\n"
+                    f"⏰ {timezone.now().strftime('%H:%M:%S')}"
+                )
                 
         except Exception as e:
             error_msg = f"Erreur générale synchronisation Saxo: {str(e)}"
@@ -220,13 +351,35 @@ class AutomationService:
                         executed_count += 1
                         results['summary'].append(f"✅ Stratégie {strategy.name} exécutée")
                         results['api_responses'].append(f"Stratégie {strategy.name}: {result.get('message', 'Succès')}")
+                        
+                        # Notification immédiate pour l'exécution réussie
+                        self.telegram_notifier.send_message(
+                            f"🚀 **Exécution Stratégie**\n"
+                            f"✅ {strategy.name} exécutée avec succès\n"
+                            f"📊 {result.get('message', 'Succès')}\n"
+                            f"⏰ {timezone.now().strftime('%H:%M:%S')}"
+                        )
                     else:
                         results['errors'].append(f"Échec exécution stratégie {strategy.name}: {result.get('error', 'Erreur inconnue')}")
+                        
+                        # Notification d'erreur immédiate
+                        self.telegram_notifier.send_error_notification(
+                            f"❌ **Erreur Exécution Stratégie**\n"
+                            f"🔍 {strategy.name}: {result.get('error', 'Erreur inconnue')}\n"
+                            f"⏰ {timezone.now().strftime('%H:%M:%S')}"
+                        )
                         
                 except Exception as e:
                     error_msg = f"Erreur exécution stratégie {strategy.name}: {str(e)}"
                     results['errors'].append(error_msg)
                     logger.error(error_msg)
+                    
+                    # Notification d'erreur immédiate
+                    self.telegram_notifier.send_error_notification(
+                        f"❌ **Erreur Critique Exécution Stratégie**\n"
+                        f"🔍 {strategy.name}: {error_msg}\n"
+                        f"⏰ {timezone.now().strftime('%H:%M:%S')}"
+                    )
                     continue  # Continuer avec les autres stratégies
             
             if executed_count > 0:
@@ -273,12 +426,12 @@ class AutomationService:
             # Message 1: Résumé des actions
             if results['summary']:
                 summary_msg = "🔄 **Résumé de l'Automatisation**\n\n" + '\n'.join(results['summary'])
-                self.telegram_notifier.send_strategy_execution_notification(summary_msg)
+                self.telegram_notifier.send_message(summary_msg)
             
             # Message 2: Réponses des APIs
             if results['api_responses']:
                 api_msg = "📊 **Réponses des APIs**\n\n" + '\n'.join(results['api_responses'])
-                self.telegram_notifier.send_strategy_execution_notification(api_msg)
+                self.telegram_notifier.send_message(api_msg)
             
             # Message 3: Erreurs
             if results['errors']:
@@ -320,13 +473,23 @@ class AutomationService:
         self.config.save()
         logger.info(f"Fréquence d'automatisation mise à jour: {frequency_minutes} minutes pour {self.user.username}")
     
+    def toggle_auto_refresh_tokens(self, enabled: bool):
+        """Active/désactive le refresh automatique des tokens"""
+        self.config.auto_refresh_tokens = enabled
+        self.config.save()
+        status = "activé" if enabled else "désactivé"
+        logger.info(f"Refresh automatique des tokens {status} pour {self.user.username}")
+    
     def get_status(self) -> dict:
         """Retourne le statut de l'automatisation"""
         return {
             'is_active': self.config.is_active,
             'frequency_minutes': self.config.frequency_minutes,
+            'auto_refresh_tokens': self.config.auto_refresh_tokens,
             'last_execution': self.config.last_execution,
             'next_execution': self.config.next_execution,
             'created_at': self.config.created_at,
             'updated_at': self.config.updated_at
         }
+    
+
