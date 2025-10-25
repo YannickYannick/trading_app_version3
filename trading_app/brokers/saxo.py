@@ -46,7 +46,16 @@ class SaxoBroker(BrokerBase):
             "scope": "openid",
             "state": state
         }
-        return f"{self.auth_url}/authorize?{urlencode(params)}"
+        full_url = f"{self.auth_url}/authorize?{urlencode(params)}"
+        
+        # Log pour le debug
+        print(f"\n🔐 URL d'authentification générée:")
+        print(f"  Client ID: {self.client_id}")
+        print(f"  Redirect URI: {self.redirect_uri}")
+        print(f"  Environment: {'LIVE' if 'live' in self.auth_url else 'SIMULATION'}")
+        print(f"  Full URL: {full_url}\n")
+        
+        return full_url
     
     def authenticate(self) -> bool:
         """Authentification - vérifier si on a un token valide ou essayer de le rafraîchir"""
@@ -97,20 +106,17 @@ class SaxoBroker(BrokerBase):
         
         print(f"🔐 Authentification OAuth2 vers {token_url}")
         print(f"🔑 Client ID: {self.client_id}")
+        print(f"🔑 Redirect URI: {self.redirect_uri}")
         print(f"🔑 Environment: {'LIVE' if 'live' in self.auth_url else 'SIMULATION'}")
+        print(f"📤 Données envoyées: {data}")
         
         try:
-            response = requests.post(
-                token_url, 
-                data=data, 
-                timeout=30,
-                headers={
-                    'User-Agent': 'SaxoBroker/1.0',
-                    'Content-Type': 'application/x-www-form-urlencoded'
-                }
-            )
+            # Utiliser exactement le même format que le code Python qui fonctionne
+            response = requests.post(token_url, data=data, timeout=30)
             
             print(f"📊 Status Code: {response.status_code}")
+            if response.status_code not in [200, 201]:
+                print(f"❌ Réponse d'erreur: {response.text}")
             
             if response.status_code in [200, 201]:  # ✅ Accepter 200 et 201
                 tokens = response.json()

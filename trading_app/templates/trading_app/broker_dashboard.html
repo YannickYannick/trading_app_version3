@@ -161,6 +161,31 @@
                         </button>
                     </div>
                     
+                    <!-- Bouton de connexion Saxo -->
+                    {% if broker.broker_type == "saxo" %}
+                    <div class="mt-3">
+                        <button class="btn btn-primary btn-sm w-100" onclick="connectToSaxo({{ broker.id }})">
+                            <i class="fas fa-sign-in-alt"></i> Se connecter à Saxo Bank
+                        </button>
+                        <div id="saxo-auth-result-{{ broker.id }}" class="mt-2"></div>
+                        
+                        <!-- Section pour échanger le code d'autorisation -->
+                        <div class="card mt-3" id="exchange-code-section-{{ broker.id }}" style="display: none;">
+                            <div class="card-body">
+                                <h6><i class="fas fa-key"></i> Échanger le code d'autorisation</h6>
+                                <p class="small text-muted">Après avoir cliqué sur le lien ci-dessus et autorisé l'application, copiez le code d'autorisation et collez-le ici :</p>
+                                <div class="input-group mb-2">
+                                    <input type="text" id="authorization_code-{{ broker.id }}" class="form-control" placeholder="Ex: aa1dc833-f16b-4e08-b65c-a7a5fcec5fc6">
+                                    <button class="btn btn-success" onclick="exchangeAuthCode({{ broker.id }})">
+                                        <i class="fas fa-exchange-alt"></i> Échanger
+                                    </button>
+                                </div>
+                                <div id="token-result-{{ broker.id }}"></div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+                    
                     <!-- Configuration Auto-Refresh pour Saxo -->
                     {% if broker.broker_type == "saxo" %}
                     <div class="mt-3 p-3 bg-light rounded">
@@ -224,6 +249,71 @@ function testConnection(brokerId) {
         });
 }
 
+function connectToSaxo(brokerId) {
+    console.log('Connexion à Saxo pour le broker:', brokerId);
+    const resultDiv = document.getElementById(`saxo-auth-result-${brokerId}`);
+    resultDiv.innerHTML = '<div class="alert alert-info"><i class="fas fa-spinner fa-spin"></i> Génération de l\'URL d\'authentification...</div>';
+    
+    fetch(`/brokers/${brokerId}/saxo/auth-url/`)
+        .then(response => {
+            // Vérifier si la réponse est JSON
+            const contentType = response.headers.get('content-type');
+            if (!contentType || !contentType.includes('application/json')) {
+                return response.text().then(text => {
+                    console.error('Réponse non-JSON reçue:', text.substring(0, 200));
+                    throw new Error('Le serveur a retourné une réponse HTML au lieu de JSON.');
+                });
+            }
+            
+            return response.json().then(data => ({
+                ok: response.ok,
+                status: response.status,
+                data: data
+            }));
+        })
+        .then(result => {
+            console.log('Données:', result);
+            
+            if (result.ok && result.data.success) {
+                // Afficher l'URL complète pour le debug
+                console.log('URL d\'authentification complète:', result.data.auth_url);
+                console.log('Vérifiez que le redirect_uri correspond exactement à celui enregistré dans Saxo Developer Portal');
+                
+                resultDiv.innerHTML = `
+                    <div class="alert alert-success">
+                        <p><strong>Connexion prête :</strong></p>
+                        <a href="${result.data.auth_url}" class="btn btn-success btn-sm" target="_blank">
+                            <i class="fas fa-external-link-alt"></i> Se connecter à Saxo Bank
+                        </a>
+                        <button onclick="copyToClipboard('${result.data.auth_url}')" class="btn btn-sm btn-outline-secondary mt-2">
+                            <i class="fas fa-copy"></i> Copier l'URL
+                        </button>
+                    </div>
+                `;
+                
+                // Afficher la section d'échange de code
+                document.getElementById(`exchange-code-section-${brokerId}`).style.display = 'block';
+            } else {
+                const errorMsg = result.data.error || 'Erreur inconnue';
+                console.error('Erreur:', errorMsg);
+                resultDiv.innerHTML = `
+                    <div class="alert alert-danger">
+                        <strong>Erreur:</strong> ${errorMsg}
+                    </div>
+                `;
+            }
+        })
+        .catch(error => {
+            console.error('Erreur fetch:', error);
+            resultDiv.innerHTML = `
+                <div class="alert alert-danger">
+                    <strong>Erreur:</strong> ${error.message || error}
+                    <br><small>Si ce problème persiste, vérifiez la configuration du courtier.</small>
+                </div>
+            `;
+        });
+}
+
 function syncData(brokerId, dataType) {
     const formData = new FormData();
     formData.append('data_type', dataType);
@@ -249,25 +339,61 @@ function syncData(brokerId, dataType) {
 }
 
 function getSaxoAuthUrl() {
+    console.log('getSaxoAuthUrl appelé');
+    
     fetch('/brokers/saxo/auth-url/')
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
+        .then(response => {
+            console.log('Réponse reçue:', response.status);
+            
+            // Vérifier si la réponse est JSON
+            const contentType = response.headers.get('content-type');
+            if (!contentType || !contentType.includes('application/json')) {
+                // Si ce n'est pas du JSON, lire comme texte pour obtenir plus d'info
+                return response.text().then(text => {
+                    console.error('Réponse non-JSON reçue:', text.substring(0, 200));
+                    throw new Error('Le serveur a retourné une réponse HTML au lieu de JSON. Cela indique généralement un problème de configuration ou une session expirée.');
+                });
+            }
+            
+            return response.json().then(data => ({
+                ok: response.ok,
+                status: response.status,
+                data: data
+            }));
+        })
+        .then(result => {
+            console.log('Données:', result);
+            
+            if (result.ok && result.data.success) {
                 const resultDiv = document.getElementById('saxo-auth-result');
                 resultDiv.innerHTML = `
                     <div class="alert alert-success">
                         <p><strong>URL d'authentification générée :</strong></p>
-                        <a href="${data.auth_url}" class="btn btn-success" target="_blank">
+                        <a href="${result.data.auth_url}" class="btn btn-success" target="_blank">
                             <i class="fas fa-external-link-alt"></i> Se connecter à Saxo Bank
                         </a>
                     </div>
                 `;
             } else {
-                alert('Erreur: ' + data.error);
+                const errorMsg = result.data.error || 'Erreur inconnue';
+                console.error('Erreur:', errorMsg);
+                const resultDiv = document.getElementById('saxo-auth-result');
+                resultDiv.innerHTML = `
+                    <div class="alert alert-danger">
+                        <strong>Erreur:</strong> ${errorMsg}
+                    </div>
+                `;
             }
         })
         .catch(error => {
-            alert('Erreur: ' + error);
+            console.error('Erreur fetch:', error);
+            const resultDiv = document.getElementById('saxo-auth-result');
+            resultDiv.innerHTML = `
+                <div class="alert alert-danger">
+                    <strong>Erreur:</strong> ${error.message || error}
+                    <br><small>Si ce problème persiste, veuillez rafraîchir la page et réessayer.</small>
+                </div>
+            `;
         });
 }
 
@@ -1026,6 +1152,76 @@ function showSuccessMessage(message) {
 function showErrorMessage(message) {
     const resultDiv = document.getElementById('automation-result');
     resultDiv.innerHTML = `<div class="alert alert-danger">❌ ${message}</div>`;
+}
+
+function copyToClipboard(text) {
+    navigator.clipboard.writeText(text).then(() => {
+        alert('URL copiée dans le presse-papier !');
+    }, (err) => {
+        console.error('Erreur copie presse-papier:', err);
+        alert('Impossible de copier dans le presse-papier');
+    });
+}
+
+function exchangeAuthCode(brokerId) {
+    const code = document.getElementById(`authorization_code-${brokerId}`).value;
+    const resultDiv = document.getElementById(`token-result-${brokerId}`);
+    
+    if (!code) {
+        resultDiv.innerHTML = '<div class="alert alert-warning">Veuillez entrer un code d\'autorisation</div>';
+        return;
+    }
+    
+    resultDiv.innerHTML = '<div class="alert alert-info"><i class="fas fa-spinner fa-spin"></i> Échange du code en cours...</div>';
+    
+    fetch(`/brokers/${brokerId}/exchange-auth-code/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCookie('csrftoken')
+        },
+        body: JSON.stringify({ code: code })
+    })
+    .then(async response => {
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.error || `Erreur HTTP ${response.status}`);
+        }
+        return data;
+    })
+    .then(data => {
+        if (data.success) {
+            resultDiv.innerHTML = `
+                <div class="alert alert-success">
+                    <h6><i class="fas fa-check-circle"></i> Tokens reçus avec succès !</h6>
+                    <p><strong>Access Token:</strong><br>
+                    <code>${data.access_token.substring(0, 50)}...</code></p>
+                    <p><strong>Refresh Token:</strong><br>
+                    <code>${data.refresh_token.substring(0, 50)}...</code></p>
+                    <p><strong>Expire dans:</strong> ${data.expires_in} secondes</p>
+                    <p class="text-success mt-2">✅ Les tokens ont été automatiquement sauvegardés dans la configuration du courtier.</p>
+                </div>
+            `;
+            
+            // Vider le champ de saisie
+            document.getElementById(`authorization_code-${brokerId}`).value = '';
+        } else {
+            resultDiv.innerHTML = `
+                <div class="alert alert-danger">
+                    <strong>Erreur:</strong> ${data.error}
+                </div>
+            `;
+        }
+    })
+    .catch(error => {
+        console.error('Erreur fetch:', error);
+        resultDiv.innerHTML = `
+            <div class="alert alert-danger">
+                <strong>Erreur:</strong> ${error.message || error}
+                <br><small>Consultez les logs du serveur Django pour plus de détails sur l'erreur.</small>
+            </div>
+        `;
+    });
 }
 
 </script>
